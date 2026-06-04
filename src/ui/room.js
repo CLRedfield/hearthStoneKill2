@@ -99,12 +99,14 @@ export function renderRoomView(container, state, h) {
         onclick: (e) => { e.stopPropagation(); h.onKick(i); },
       }));
     }
-    seatGrid.appendChild(el('div', {
+    const seatEl = el('div', {
       class: `rv-seat ${facecls} ${s.isYou ? 'you' : ''} ${isSel ? 'sel' : ''} ${state.canSwap ? 'swap' : ''}`,
-      onclick: state.canSwap ? () => h.onSeatClick(i) : undefined,
-    }, children));
+      dataset: { idx: String(i) },
+    }, children);
+    if (state.canSwap) attachSeatInteract(seatEl, i, seatGrid, h);
+    seatGrid.appendChild(seatEl);
   });
-  const swapHint = state.canEdit ? '（点两个座位互换；✕ 踢出）' : (state.canSwap ? '（点其他玩家座位申请换位）' : '');
+  const swapHint = state.canEdit ? '（点两个座位互换，或直接拖动座位；✕ 踢出）' : (state.canSwap ? '（点或拖动座位申请换位）' : '');
   const seatSection = el('div', { class: 'rv-section' }, [
     el('div', { class: 'rv-label', text: `座位（${state.seats.filter((s) => s.kind !== 'empty').length}/${state.seats.length}）${swapHint}` }),
     seatGrid,
@@ -152,4 +154,43 @@ export function renderRoomView(container, state, h) {
   root.appendChild(actions);
 
   container.appendChild(root);
+}
+
+// 座位交互：轻点=沿用原“点击换位”，拖动=拖到另一座位上互换（支持触屏/鼠标）
+function attachSeatInteract(seatEl, idx, grid, h) {
+  seatEl.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return; // 座位上的难度/踢人按钮自行处理
+    if (e.button != null && e.button !== 0) return; // 仅左键/触摸
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    let moved = false, dropIdx = null;
+    try { seatEl.setPointerCapture(e.pointerId); } catch (_) {}
+    const clearTargets = () => grid.querySelectorAll('.rv-seat.drop-target').forEach((n) => n.classList.remove('drop-target'));
+    const onMove = (ev) => {
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 8) return;
+      moved = true; seatEl.classList.add('dragging');
+      clearTargets();
+      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.rv-seat');
+      if (over && over !== seatEl && grid.contains(over)) { over.classList.add('drop-target'); dropIdx = Number(over.dataset.idx); }
+      else dropIdx = null;
+    };
+    const onUp = () => {
+      seatEl.removeEventListener('pointermove', onMove);
+      seatEl.removeEventListener('pointerup', onUp);
+      seatEl.removeEventListener('pointercancel', onUp);
+      seatEl.classList.remove('dragging'); clearTargets();
+      try { seatEl.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (moved) {
+        if (dropIdx != null && dropIdx !== idx) {
+          if (h.onSeatSwap) h.onSeatSwap(idx, dropIdx);
+          else { h.onSeatClick(idx); h.onSeatClick(dropIdx); }
+        }
+      } else {
+        h.onSeatClick(idx); // 轻点 = 原有点击换位逻辑
+      }
+    };
+    seatEl.addEventListener('pointermove', onMove);
+    seatEl.addEventListener('pointerup', onUp);
+    seatEl.addEventListener('pointercancel', onUp);
+  });
 }

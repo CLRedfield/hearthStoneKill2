@@ -13,6 +13,7 @@ import {
 } from '../engine/responses.js';
 import { FxLayer } from './fx.js';
 import { attachTip, hideTip } from './tooltip.js';
+import { openCodex } from './codex.js';
 
 export class GameUI {
   constructor(engine, viewerId, opts = {}) {
@@ -115,6 +116,7 @@ export class GameUI {
       ]),
       buttons: [
         { label: '查看弃牌堆', onClick: () => { ov.close(); this._openDiscardViewer(); } },
+        { label: '图鉴室', onClick: () => { ov.close(); openCodex(); } },
         { label: '返回大厅', danger: true, onClick: () => { if (confirm('确定返回大厅？当前对局将结束。')) location.reload(); } },
         { label: '继续游戏', primary: true, onClick: () => ov.close() },
       ],

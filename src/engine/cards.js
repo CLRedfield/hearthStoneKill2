@@ -256,6 +256,13 @@ const HS_DECK_LIST = [
   ...genN('binkuai', 2), ...genN('yiyanhuanyan', 1), ...genN('xuneng', 1), ...genN('aoshupingzhang', 1),
 ];
 
+// 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）
+export const SGS_KINDS = [...new Set(DECK_LIST.map((c) => c.kind))];
+export const HS_KINDS = [...new Set([
+  ...HS_DECK_LIST.map((c) => c.kind),
+  'cthunheart', 'cthuneye', 'cthunbody', 'cthunmouth', 'chaoren', 'gujuan', 'zhenzhu',
+])];
+
 function makeCards(list) {
   return list.map((c) => {
     const def = CARD_DEFS[c.kind];

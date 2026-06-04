@@ -115,3 +115,17 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(201,162,39,.35); border-radius: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* 触屏：增大可点击控件 */
+@media (pointer: coarse) {
+  .btn { min-height: 42px; }
+  .btn.big { min-height: 50px; }
+}
+
+/* 手机：弹层不再强制最小宽度，避免溢出 */
+@media (max-width: 640px) {
+  .overlay-panel { min-width: 0; max-width: 96vw; padding: 18px 16px; }
+  .overlay-panel.wide { min-width: 0; }
+  #toast-root { width: 92vw; }
+  .toast { font-size: 13px; }
+}

@@ -276,6 +276,17 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
           toast('已申请换位…');
         }
       },
+      // 拖动换位：房主可把任一真人座位拖到另一真人座位互换；非房主仅能拖动自己的座位申请换位
+      onSeatSwap: (a, b) => {
+        if (a === b) return;
+        if (isHost) {
+          if (seats[a]?.kind !== 'human' || seats[b]?.kind !== 'human') return;
+          const pa = room.players[a], pb = room.players[b];
+          room.players[a] = pb; room.players[b] = pa; selectedSeat = null; publishLobby(); render(room);
+        } else if (allowSeatChange) {
+          if (seats[a]?.isYou && seats[b]?.kind === 'human') { BUS.pub(T.move, { id: myId, toIndex: b }, { qos: 1 }); toast('已申请换位…'); }
+        }
+      },
       onStart: () => startHostGame(),
       onExit: () => { BUS?.end(); location.reload(); },
     };
