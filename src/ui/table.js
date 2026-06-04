@@ -77,6 +77,8 @@ export class GameUI {
     const wrap = this.root.querySelector('#table-wrap');
     if (!wrap) return;
     const snap = this.engine.snapshot(this.viewerId);
+    // 记住手牌横向滚动位置，避免重渲染（如点击别处）后被重置到最左
+    const prevHandScroll = wrap.querySelector('.hand-row')?.scrollLeft || 0;
     clear(wrap);
 
     wrap.appendChild(this._renderTopBar(snap));
@@ -85,6 +87,9 @@ export class GameUI {
     wrap.appendChild(this._renderSelf(snap));
     wrap.appendChild(this._renderActionBar(snap));
     wrap.appendChild(this._renderLogPanel(snap));
+    // 恢复手牌滚动位置
+    const newHand = wrap.querySelector('.hand-row');
+    if (newHand && prevHandScroll) newHand.scrollLeft = prevHandScroll;
 
     if (snap.over) this._renderGameOver(snap);
   }
@@ -393,19 +398,27 @@ export class GameUI {
   }
 
   _renderLogPanel(snap) {
-    const panel = el('div', { class: 'log-panel', id: 'log-panel' });
-    snap.logs.slice(-14).forEach((l) => panel.appendChild(el('div', { class: `log-line log-${l.kind}`, text: l.text })));
-    setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 0);
+    const panel = el('div', { class: `log-panel ${this.logCollapsed ? 'collapsed' : ''}`, id: 'log-panel' });
+    panel.appendChild(el('div', { class: 'log-head', onclick: () => { this.logCollapsed = !this.logCollapsed; this.render(); } }, [
+      el('span', { class: 'log-title', text: '战报' }),
+      el('span', { class: 'log-toggle', text: this.logCollapsed ? '展开 ▴' : '收起 ▾' }),
+    ]));
+    const body = el('div', { class: 'log-body', id: 'log-body' });
+    if (!this.logCollapsed) {
+      snap.logs.slice(-14).forEach((l) => body.appendChild(el('div', { class: `log-line log-${l.kind}`, text: l.text })));
+      setTimeout(() => { body.scrollTop = body.scrollHeight; }, 0);
+    }
+    panel.appendChild(body);
     return panel;
   }
 
   renderLog() {
-    const panel = this.root?.querySelector('#log-panel');
-    if (!panel) return;
+    const body = this.root?.querySelector('#log-body');
+    if (!body || this.logCollapsed) return;
     const snap = this.engine.snapshot(this.viewerId);
-    clear(panel);
-    snap.logs.slice(-14).forEach((l) => panel.appendChild(el('div', { class: `log-line log-${l.kind}`, text: l.text })));
-    panel.scrollTop = panel.scrollHeight;
+    clear(body);
+    snap.logs.slice(-14).forEach((l) => body.appendChild(el('div', { class: `log-line log-${l.kind}`, text: l.text })));
+    body.scrollTop = body.scrollHeight;
   }
 
   _renderGameOver(snap) {
@@ -826,7 +839,7 @@ export class GameUI {
         const titleMap = {
           bingfeng: '冰封：选择要冻结手牌的角色',
           xuerou: '血肉成灰：选择目标（其下回合少摸1张）',
-          liexin: '裂心：选择交换手牌的角色（回合结束换回）', xuanzhuan: '旋转：选择交换一张牌的角色', hanshuang: '寒霜：选择目标（其下回合手牌上限-4）',
+          liexin: '裂心：选择交换手牌的角色（回合结束换回）', xuanzhuan: '旋转：选择要观看手牌并交换一张牌的角色', hanshuang: '寒霜：选择目标（其下回合手牌上限-4）',
           dihou: '低吼：选择目标（获取其失去的牌）', huoyan: '火眼：选择目标（弃5张【杀】造10点强制伤害）',
           duwu: '毒雾：选择目标（其使用牌前须弃更大点数的牌）',
         };
