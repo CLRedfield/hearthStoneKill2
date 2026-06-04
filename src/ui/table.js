@@ -273,19 +273,24 @@ export class GameUI {
 
   _cardFace(card, { mini = false, clickable = false, dim = false, selected = false, onClick } = {}) {
     const def = CARD_DEFS[card.kind] || {};
+    const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[def.type] || '';
     const node = el('div', {
       class: `card-face type-${def.type || 'basic'} ${card.red ? 'red' : 'black'} ${mini ? 'mini' : ''} ${dim ? 'dim' : ''} ${selected ? 'sel' : ''} ${clickable ? 'clickable' : ''} ${card.frozen ? 'frozen' : ''}`,
-      title: def.desc || '',
-      onclick: onClick || undefined,
     }, [
       el('div', { class: 'cf-top' }, [
         el('span', { class: 'cf-rank', text: rankLabel(card.number) }),
         el('span', { class: 'cf-suit', text: SUIT_SYMBOL[card.suit] || '' }),
       ]),
       el('div', { class: 'cf-name', text: card.name }),
-      el('div', { class: 'cf-type', text: { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本' }[def.type] || '' }),
+      el('div', { class: 'cf-type', text: typeLabel }),
       card.frozen ? el('div', { class: 'cf-frozen', text: '❄' }) : null,
     ]);
+    // 精美介绍：桌面端悬停、移动端单击即显示（替代原生 title 长按）。
+    // 先绑定提示再绑定选牌点击：选牌会同步 render() 把本节点替换掉，故须在替换前完成提示定位。
+    const accent = { equip: '#2e8b57', trick: '#8a5bba', delayed: '#d08a3a', secret: '#b186ff' }[def.type] || 'var(--gold)';
+    const sub = [typeLabel, `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}`, card.frozen ? '· 已冻结' : ''].filter(Boolean).join(' · ');
+    attachTip(node, { title: card.name, sub, desc: def.desc || '', accent });
+    if (onClick) node.addEventListener('click', onClick);
     return node;
   }
 
