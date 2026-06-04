@@ -1,0 +1,278 @@
+/* ====================== 牌桌 ====================== */
+.game-root, .table-wrap { position: fixed; inset: 0; }
+.table-wrap {
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(900px 520px at 50% 38%, rgba(60,46,32,.6), transparent 70%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.012) 0 2px, transparent 2px 7px),
+    linear-gradient(180deg, #1c1611, #0f0b08);
+  padding: 0 12px 6px;
+}
+
+/* 顶栏 */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; border-bottom: 1px solid rgba(201,162,39,.22);
+  color: var(--text-dim); font-size: 14px;
+}
+.tb-mode { color: var(--gold-bright); letter-spacing: 2px; font-weight: 600; }
+.tb-phase { display: flex; gap: 14px; align-items: baseline; }
+.tb-turn { color: var(--text); }
+.tb-phase-name { color: var(--gold); font-weight: 600; }
+
+/* 对手区 */
+.opp-grid {
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: flex-start;
+  padding: 12px 6px 6px; flex: 0 0 auto;
+}
+
+/* 玩家面板 */
+.player {
+  position: relative; width: 156px; border-radius: 12px; padding: 9px 10px 8px;
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-1));
+  border: 1px solid rgba(201,162,39,.28);
+  box-shadow: 0 5px 16px var(--shadow); transition: box-shadow .2s, transform .15s, border-color .2s;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.player.is-turn { border-color: var(--gold-bright); box-shadow: 0 0 0 2px rgba(236,202,94,.5), 0 0 26px rgba(201,162,39,.35); }
+.player.is-turn::after { content: "行动中"; position: absolute; top: -10px; right: 8px; background: var(--gold); color: #2a1d05; font-size: 11px; padding: 1px 8px; border-radius: 8px; font-weight: 700; }
+.player.selectable { cursor: pointer; border-color: var(--red-bright); animation: tgtPulse 1.1s ease-in-out infinite; }
+.player.selectable:hover { transform: translateY(-2px); }
+.player.selected { border-color: var(--red-bright); box-shadow: 0 0 0 3px rgba(224,88,79,.6), 0 0 22px rgba(224,88,79,.4); }
+@keyframes tgtPulse { 0%,100% { box-shadow: 0 0 0 1px rgba(224,88,79,.5); } 50% { box-shadow: 0 0 0 3px rgba(224,88,79,.55), 0 0 18px rgba(224,88,79,.45); } }
+.player.dead { filter: grayscale(.85) brightness(.6); }
+
+.p-portrait { position: absolute; top: 9px; right: 9px; width: 40px; height: 40px; border-radius: 9px;
+  background: linear-gradient(160deg, var(--fac, #555), #0c0a08); display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.p-pchar { font: 700 24px "STKaiti","KaiTi",serif; color: #f4ead0; }
+.p-info { display: flex; flex-direction: column; gap: 3px; }
+.p-name { font-size: 14px; color: var(--text); font-weight: 600; }
+.p-general { font-size: 12px; color: var(--gold); }
+.p-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+.p-faction, .p-identity, .p-team { font-size: 11px; padding: 1px 7px; border-radius: 8px; color: #fff; }
+.p-identity.id-lord { background: linear-gradient(180deg, #d4a418, #9c7a10); color: #2a1d05; font-weight: 700; }
+.p-identity.id-loyalist { background: #2e6fb0; }
+.p-identity.id-rebel { background: #b8312a; }
+.p-identity.id-traitor { background: #6c5b8c; }
+.p-team.team-A { background: #2e6fb0; } .p-team.team-B { background: #b8312a; }
+
+.p-hp { display: flex; gap: 3px; }
+.hp-bead { width: 11px; height: 11px; border-radius: 50%; background: #3a2c22; box-shadow: inset 0 0 0 1px rgba(0,0,0,.4); }
+.hp-bead.on { background: radial-gradient(circle at 35% 30%, #ff8a7a, var(--red)); box-shadow: 0 0 5px rgba(224,88,79,.6); }
+.hp-bead.on.low { animation: hpLow .8s ease-in-out infinite; }
+@keyframes hpLow { 0%,100% { box-shadow: 0 0 4px rgba(224,88,79,.5); } 50% { box-shadow: 0 0 11px rgba(224,88,79,.95); } }
+.p-hand-count { font-size: 12px; color: var(--text-dim); }
+
+.p-skills { display: flex; gap: 4px; flex-wrap: wrap; }
+.skill-tag { font-size: 11px; color: #ddd2ff; background: rgba(90,72,130,.5); border: 1px solid rgba(150,128,200,.5); padding: 0 6px; border-radius: 7px; cursor: help; }
+.p-equips { display: flex; flex-direction: column; gap: 3px; }
+.equip-chip { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(46,139,87,.16); border: 1px solid rgba(46,139,87,.4); color: #cfe9da; }
+.equip-chip.red { background: rgba(184,49,42,.16); border-color: rgba(224,88,79,.4); color: #f3cfca; }
+.eq-tag { color: var(--text-dim); }
+.eq-suit { margin-left: auto; opacity: .8; }
+.p-judge { display: flex; gap: 4px; flex-wrap: wrap; }
+.judge-chip { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(140,91,140,.3); border: 1px solid rgba(180,120,180,.5); color: #e8d6f0; cursor: help; }
+.dead-overlay { position: absolute; inset: 0; display: grid; place-items: center; font: 700 26px "STKaiti","KaiTi",serif; color: rgba(224,88,79,.9); background: rgba(8,6,4,.45); border-radius: 12px; letter-spacing: 4px; }
+/* 盾 / 奥秘 标记 */
+.p-tokens { display: flex; gap: 4px; flex-wrap: wrap; }
+.token-chip { font-size: 11px; padding: 1px 6px; border-radius: 7px; cursor: help; }
+.shield-chip { background: rgba(90,142,208,.22); border: 1px solid rgba(90,142,208,.55); color: #b9d4f2; }
+.secret-chip { background: rgba(177,134,255,.2); border: 1px solid rgba(177,134,255,.5); color: #d8c6ff; }
+/* 奥秘触发动画 */
+.fx-secret { position: fixed; font: 700 18px/1 "STKaiti","KaiTi",serif; color: #d8c6ff; text-shadow: 0 0 12px rgba(177,134,255,.9), 0 2px 4px #000; will-change: transform, opacity; pointer-events: none; white-space: nowrap; }
+
+/* 中央：牌堆 / 弃牌 */
+.table-center { display: flex; align-items: center; justify-content: center; gap: 24px; padding: 6px 0; position: relative; flex: 1 1 auto; min-height: 80px; }
+.center-deck, .center-discard { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.deck-pile { width: 58px; height: 80px; border-radius: 8px; background: linear-gradient(160deg, #5a4a2e, #2a2014); border: 1px solid var(--gold-dim); display: grid; place-items: center; color: var(--gold-bright); font-weight: 700; font-size: 20px; box-shadow: 0 5px 14px var(--shadow), inset 0 0 0 3px rgba(0,0,0,.25); }
+.deck-label, .discard-empty { font-size: 12px; color: var(--text-dim); }
+.discard-empty { width: 58px; height: 80px; border: 1px dashed rgba(201,162,39,.35); border-radius: 8px; display: grid; place-items: center; }
+.center-banner { position: absolute; top: 0; left: 50%; transform: translateX(-50%); }
+
+/* 卡牌 */
+.card-face {
+  position: relative; width: 64px; height: 90px; border-radius: 8px;
+  background: linear-gradient(170deg, var(--parch), var(--parch-2));
+  color: #2a2016; border: 1px solid #b69a5e; flex: 0 0 auto;
+  box-shadow: 0 4px 10px var(--shadow); transition: transform .14s ease, box-shadow .14s;
+  display: flex; flex-direction: column; padding: 5px 6px; overflow: hidden;
+}
+.card-face.red { color: var(--red); }
+.card-face.black { color: #20242b; }
+.card-face::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--gold); }
+.card-face.type-trick::before { background: #8a5bba; }
+.card-face.type-delayed::before { background: #d08a3a; }
+.card-face.type-equip::before { background: #2e8b57; }
+.cf-top { display: flex; flex-direction: column; line-height: 1; font-weight: 700; }
+.cf-rank { font-size: 16px; } .cf-suit { font-size: 14px; }
+.cf-name { margin: auto 0; text-align: center; font-size: 18px; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; }
+.card-face.red .cf-name { color: #8e201b; }
+.cf-type { font-size: 10px; text-align: center; color: #6a5a3a; }
+.card-face.mini { width: 44px; height: 62px; padding: 3px 4px; }
+.card-face.mini .cf-name { font-size: 13px; } .card-face.mini .cf-rank { font-size: 12px; }
+.card-face.clickable { cursor: pointer; }
+.card-face.clickable:hover { transform: translateY(-10px); box-shadow: 0 14px 24px var(--shadow); z-index: 5; }
+.card-face.sel { transform: translateY(-14px); box-shadow: 0 0 0 2px var(--gold-bright), 0 16px 26px var(--shadow); z-index: 6; }
+.card-face.dim { opacity: .42; filter: saturate(.6); }
+.card-face.frozen { box-shadow: 0 0 0 2px #7fc6e8, 0 4px 10px var(--shadow); filter: saturate(.7) brightness(.9); }
+.card-face.frozen::after { content: ""; position: absolute; inset: 0; border-radius: 8px; background: linear-gradient(160deg, rgba(150,210,240,.32), rgba(120,180,230,.12)); pointer-events: none; }
+.cf-frozen { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 26px; color: #bfe6f7; text-shadow: 0 0 8px #7fc6e8; pointer-events: none; }
+.card-back { width: 44px; height: 62px; border-radius: 7px; background: linear-gradient(160deg, #5a4a2e, #2a2014); border: 1px solid var(--gold-dim); display: grid; place-items: center; color: var(--gold); font-size: 12px; cursor: pointer; }
+.card-back.small { width: 40px; height: 56px; }
+
+/* 自己面板放大 */
+.self-panel { width: 220px; margin: 0 auto; align-self: center; }
+.self-panel .p-portrait { width: 50px; height: 50px; }
+.self-panel .p-pchar { font-size: 30px; }
+.self-panel .p-name { font-size: 16px; }
+
+/* 操作栏 */
+.action-bar { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 4px; border-top: 1px solid rgba(201,162,39,.2); background: linear-gradient(0deg, rgba(0,0,0,.25), transparent); }
+.ab-banner { min-height: 22px; }
+.ab-title { color: var(--gold-bright); font-size: 15px; letter-spacing: 1px; }
+.ab-wait { color: var(--text-dim); font-size: 14px; }
+.hand-row { display: flex; gap: 8px; justify-content: center; align-items: flex-end; min-height: 94px; padding: 0 10px; flex-wrap: wrap; max-width: 96vw; }
+.hand-empty { color: var(--text-dim); align-self: center; }
+.ab-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; min-height: 36px; align-items: center; }
+.ab-hint, .ab-controls .ab-hint { color: var(--text-dim); font-size: 13px; }
+
+/* 日志 */
+.log-panel {
+  position: absolute; left: 12px; bottom: 150px; width: 248px; max-height: 168px; overflow-y: auto;
+  background: rgba(10,8,6,.55); border: 1px solid rgba(201,162,39,.22); border-radius: 10px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.55; backdrop-filter: blur(2px);
+}
+.log-line { color: var(--text-dim); }
+.log-info {}
+.log-play { color: #e9ddc6; }
+.log-damage { color: #e98b80; }
+.log-good { color: #8fd6a8; }
+.log-bad { color: #e9a07a; }
+.log-death { color: #e0584f; font-weight: 600; }
+.log-turn { color: var(--gold-bright); }
+.log-system { color: #8aa0c0; font-style: italic; }
+.log-win { color: var(--gold-bright); font-weight: 700; }
+
+/* 选牌 / 选人 弹层 */
+.pick-grid, .choose-card-body, .guanxing-body, .pick-cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.guanxing-body { flex-direction: column; }
+.gx-zone { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px dashed rgba(201,162,39,.3); border-radius: 8px; min-height: 70px; align-items: center; }
+.gx-label { width: 100%; font-size: 12px; color: var(--text-dim); }
+.pick-players { display: flex; flex-direction: column; gap: 8px; }
+.pick-player-btn { text-align: left; }
+.mini-card { position: relative; width: 52px; height: 72px; border-radius: 7px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e; color: #2a2016; cursor: pointer; padding: 4px; box-shadow: 0 3px 8px var(--shadow); transition: transform .12s; }
+.mini-card:hover { transform: translateY(-5px); }
+.mini-card.red { color: var(--red); }
+.mc-corner { font-size: 12px; font-weight: 700; }
+.mc-name { text-align: center; font-size: 15px; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; margin-top: 6px; }
+.mini-card.red .mc-name { color: #8e201b; }
+.cc-zone { position: absolute; bottom: 2px; right: 3px; font-size: 9px; color: #6a5a3a; }
+
+/* 结算 */
+.gameover-body { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 360px; }
+.go-result { font-size: 46px; font-weight: 800; letter-spacing: 8px; font-family: "STKaiti","KaiTi",serif; }
+.go-result.win { color: var(--gold-bright); text-shadow: 0 0 24px rgba(201,162,39,.6); }
+.go-result.lose { color: var(--text-dim); }
+.go-sub { color: var(--gold); }
+.go-list { width: 100%; display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.go-row { display: grid; grid-template-columns: 1fr 1fr 70px 56px; gap: 8px; font-size: 13px; padding: 5px 10px; background: rgba(255,255,255,.03); border-radius: 6px; }
+.go-row .alive { color: #8fd6a8; } .go-row .dead { color: var(--text-dim); }
+
+/* 顶栏增强 */
+.tb-left { display: flex; align-items: center; gap: 12px; }
+.tb-menu-btn { width: 36px; height: 30px; border-radius: 7px; border: 1px solid rgba(201,162,39,.4); background: var(--ink-1); color: var(--gold-bright); font-size: 15px; cursor: pointer; line-height: 1; transition: all .14s; }
+.tb-menu-btn:hover { border-color: var(--gold); background: var(--ink-3); transform: translateY(-1px); }
+.tb-deck { cursor: pointer; display: flex; gap: 14px; align-items: center; transition: color .14s; }
+.tb-deck b { color: var(--text); }
+.tb-discard-link { color: var(--gold); }
+.tb-deck:hover .tb-discard-link { color: var(--gold-bright); }
+
+/* 玩家名 + 电脑标签 */
+.p-name-row { display: flex; align-items: center; gap: 6px; }
+.p-ai-tag { font-size: 10px; padding: 0 5px; line-height: 15px; border-radius: 6px; background: rgba(110,110,140,.3); border: 1px solid rgba(160,160,190,.4); color: #c9c9da; }
+.skill-tag.lord { background: rgba(201,162,39,.25); border-color: rgba(201,162,39,.6); color: var(--gold-bright); }
+.skill-tag, .equip-chip, .judge-chip { cursor: pointer; }
+
+/* 弃牌堆角标 */
+.center-discard { position: relative; cursor: pointer; transition: transform .14s; }
+.center-discard:hover { transform: translateY(-3px); }
+.discard-count-badge { position: absolute; top: -6px; right: -8px; background: var(--ink-3); border: 1px solid var(--gold-dim); color: var(--gold-bright); font-size: 11px; border-radius: 10px; padding: 0 6px; }
+
+/* 弃牌堆查看 / 菜单 */
+.discard-viewer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 660px; max-height: 60vh; overflow-y: auto; padding: 4px; }
+.dv-empty { color: var(--text-dim); padding: 30px; }
+.menu-list { text-align: center; }
+.menu-hint { color: var(--text-dim); font-size: 13px; }
+
+/* ====== 动画特效层 ====== */
+.fx-root { position: fixed; inset: 0; pointer-events: none; z-index: 1500; overflow: hidden; }
+.fx-card { position: fixed; left: 0; top: 0; width: 54px; height: 76px; border-radius: 7px;
+  background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e;
+  box-shadow: 0 8px 22px rgba(0,0,0,.55), 0 0 18px var(--accent, var(--gold));
+  display: flex; flex-direction: column; align-items: center; justify-content: center; will-change: transform, opacity; }
+.fx-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--accent, var(--gold)); border-radius: 7px 7px 0 0; }
+.fxc-name { font: 800 21px/1 "STKaiti","KaiTi",serif; color: #1c140c; }
+.fx-card.red .fxc-name { color: #8e201b; }
+.fxc-suit { font-size: 13px; color: #6a5a3a; margin-top: 3px; }
+.fx-card.red .fxc-suit { color: var(--red); }
+.fx-impact { position: fixed; width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--accent, var(--gold)); box-shadow: 0 0 26px var(--accent, var(--gold)); will-change: transform, opacity; }
+/* 判定动画 */
+.fx-judge { position: fixed; left: 50%; top: 42%; display: flex; flex-direction: column; align-items: center; gap: 10px; will-change: transform, opacity; perspective: 600px; }
+.fxj-label { font: 700 16px/1 "STKaiti","KaiTi",serif; letter-spacing: 3px; color: var(--gold-bright); text-shadow: 0 2px 8px #000; }
+.fxj-card { position: relative; width: 96px; height: 134px; border-radius: 12px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 2px solid var(--gold); box-shadow: 0 0 0 4px rgba(201,162,39,.45), 0 18px 50px rgba(0,0,0,.7), 0 0 40px rgba(201,162,39,.5); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.fx-judge.red .fxj-card { box-shadow: 0 0 0 4px rgba(224,88,79,.5), 0 18px 50px rgba(0,0,0,.7), 0 0 40px rgba(224,88,79,.5); border-color: var(--red-bright); }
+.fxj-corner { position: absolute; top: 6px; left: 8px; font: 700 16px/1 sans-serif; color: #2a2016; }
+.fx-judge.red .fxj-corner, .fx-judge.red .fxj-name, .fx-judge.red .fxj-suit { color: var(--red); }
+.fxj-name { font: 800 30px/1 "STKaiti","KaiTi",serif; color: #1c140c; }
+.fxj-suit { font-size: 34px; color: #20242b; margin-top: 6px; }
+.fx-dmg { position: fixed; font: 800 36px/1 "STKaiti","KaiTi",serif; color: #ff5a4a; text-shadow: 0 0 12px rgba(224,60,50,.85), 0 2px 4px #000; will-change: transform, opacity; }
+.fx-dmg.thunder { color: #8ab6ff; text-shadow: 0 0 14px rgba(120,170,255,.9), 0 2px 4px #000; }
+.fx-dmg.fire { color: #ff8a3a; text-shadow: 0 0 14px rgba(255,140,60,.9), 0 2px 4px #000; }
+.fx-heal { position: fixed; font: 800 30px/1 "STKaiti","KaiTi",serif; color: #6ee29a; text-shadow: 0 0 12px rgba(80,200,130,.85), 0 2px 4px #000; will-change: transform, opacity; }
+.player.shake { animation: shakeAnim .45s ease; }
+@keyframes shakeAnim { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+
+/* ====== 精美提示框 ====== */
+.rich-tip { position: fixed; left: 0; top: 0; z-index: 3000; max-width: 268px; pointer-events: none;
+  opacity: 0; transform: translateY(5px); transition: opacity .14s ease, transform .14s ease;
+  background: linear-gradient(180deg, #251d16, #15100a); border: 1px solid var(--accent, var(--gold));
+  border-radius: 11px; padding: 11px 14px; box-shadow: 0 14px 34px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05); }
+.rich-tip.show { opacity: 1; transform: none; }
+.rt-title { font: 700 16px/1.2 "STKaiti","KaiTi",serif; color: var(--accent, var(--gold)); letter-spacing: 1px; }
+.rt-sub { font-size: 11px; color: var(--text-dim); margin: 3px 0 6px; }
+.rt-desc { font-size: 12.5px; color: var(--text); line-height: 1.65; }
+
+/* ====== 聊天 / 快捷喊话 ====== */
+.chat-box { position: fixed; right: 14px; bottom: 14px; width: 268px; z-index: 1800;
+  background: linear-gradient(180deg, rgba(34,26,21,.96), rgba(16,11,8,.97));
+  border: 1px solid rgba(201,162,39,.36); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 14px 36px var(--shadow); display: flex; flex-direction: column; }
+.chat-box.collapsed { width: 168px; }
+.chat-head { display: flex; align-items: center; gap: 7px; padding: 8px 12px; cursor: pointer; background: rgba(255,255,255,.03); border-bottom: 1px solid rgba(201,162,39,.2); }
+.chat-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.chat-dot.connect { background: #4fd07a; box-shadow: 0 0 6px #4fd07a; }
+.chat-dot.reconnect { background: #e8c45a; box-shadow: 0 0 6px #e8c45a; animation: dotPulse .8s infinite; }
+.chat-dot.offline { background: #e0584f; box-shadow: 0 0 6px #e0584f; }
+@keyframes dotPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.chat-title { color: var(--gold-bright); font-size: 14px; font-weight: 600; }
+.chat-status { font-size: 11px; color: var(--text-dim); margin-left: 2px; }
+.chat-toggle { margin-left: auto; color: var(--gold); font-size: 13px; }
+.chat-msgs { height: 156px; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.chat-line { line-height: 1.45; color: var(--text); word-break: break-word; }
+.chat-line .chat-name { color: var(--gold); }
+.chat-line.mine .chat-name { color: var(--gold-bright); }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 10px; border-top: 1px solid rgba(201,162,39,.16); }
+.chat-q { font-size: 11px; color: var(--text-dim); background: var(--ink-1); border: 1px solid rgba(201,162,39,.28); border-radius: 12px; padding: 3px 9px; cursor: pointer; transition: all .12s; }
+.chat-q:hover { border-color: var(--gold); color: var(--gold-bright); }
+.chat-input-row { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid rgba(201,162,39,.16); }
+.chat-input { flex: 1; min-width: 0; font-family: inherit; font-size: 13px; color: var(--text); background: var(--ink-1); border: 1px solid rgba(201,162,39,.3); border-radius: 7px; padding: 6px 9px; outline: none; }
+.chat-input:focus { border-color: var(--gold); }
+.chat-send { padding: 6px 12px; font-size: 13px; }
+
+/* 响应式 */
+@media (max-width: 720px) {
+  .player { width: 132px; }
+  .self-panel { width: 180px; }
+  .log-panel { width: 180px; bottom: 168px; }
+  .card-face { width: 54px; height: 78px; }
+}
