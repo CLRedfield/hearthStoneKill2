@@ -7,6 +7,7 @@ import { AIAgent, AI_CHAOS } from '../engine/ai.js';
 import { GameUI, HumanAgent } from './table.js';
 import { startOnlineFlow } from '../net/online.js';
 import { renderRoomView, modeCapacity, nextDiff } from './room.js';
+import { openCodex } from './codex.js';
 import { shuffle } from '../util.js';
 
 // AI 昵称（刻意区别于武将名，避免与所选武将混淆）
@@ -78,6 +79,10 @@ export class Lobby {
         el('div', { class: 'mb-desc', text: '公共服务器创建/加入房间' }),
       ]),
     ]));
+    panel.appendChild(el('button', { class: 'btn codex-entry', onclick: () => openCodex() }, [
+      el('span', { text: '📖 图鉴室' }),
+      el('span', { class: 'codex-entry-sub', text: '武将技能 / 卡牌总览' }),
+    ]));
     panel.appendChild(el('div', { class: 'home-footer', text: '运筹帷幄之中，决胜千里之外' }));
     return panel;
   }
@@ -120,6 +125,11 @@ export class Lobby {
         else if (this.selectedSeat === i) this.selectedSeat = null;
         else { const a = this.selectedSeat; const t = this.localSeats[a]; this.localSeats[a] = this.localSeats[i]; this.localSeats[i] = t; this.selectedSeat = null; }
         this.render();
+      },
+      onSeatSwap: (a, b) => {
+        if (a === b) return;
+        const t = this.localSeats[a]; this.localSeats[a] = this.localSeats[b]; this.localSeats[b] = t;
+        this.selectedSeat = null; this.render();
       },
       onIdentity: (v) => { this.myIdentity = v; this.render(); },
       onTeam: (t) => { this.myTeam = t; this.render(); },

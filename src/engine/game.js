@@ -679,12 +679,16 @@ export class GameEngine {
     await triggerSkill(this, 'active:' + move.skill, { player, move });
   }
 
+  // 手牌上限基数：三国杀=体力；炉石杀=体力+1
+  _handLimitBase(player) { return player.hp + (this.config.pack === 'hs' ? 1 : 0); }
+
   async _phaseDiscard(player) {
     this._setPhase(PHASE.DISCARD);
     player.flags.lastDiscardCount = 0; // 回收（克尔苏加德）：记录本回合结束弃牌数
-    // 手牌上限 = 当前体力（可被技能改写，如迟钝/灌魔）
-    let limit = await triggerSkill(this, 'handLimit', { player, base: player.hp });
-    if (typeof limit !== 'number') limit = player.hp;
+    // 手牌上限 = 当前体力（炉石杀为体力+1；可被技能改写，如迟钝/灌魔）
+    const baseLimit = this._handLimitBase(player);
+    let limit = await triggerSkill(this, 'handLimit', { player, base: baseLimit });
+    if (typeof limit !== 'number') limit = baseLimit;
     // 寒霜：本回合手牌上限惩罚（用后清除）
     if (player.frostHandLimit) { limit = Math.max(0, limit - player.frostHandLimit); player.frostHandLimit = 0; }
     const over = player.hand.length - Math.max(0, limit);

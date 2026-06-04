@@ -269,10 +269,69 @@
 .chat-input:focus { border-color: var(--gold); }
 .chat-send { padding: 6px 12px; font-size: 13px; }
 
-/* 响应式 */
-@media (max-width: 720px) {
-  .player { width: 132px; }
-  .self-panel { width: 180px; }
-  .log-panel { width: 180px; bottom: 168px; }
-  .card-face { width: 54px; height: 78px; }
+/* ====================== 响应式 / 触屏适配 ====================== */
+/* 触屏：去掉会“粘住”的悬停位移 */
+@media (hover: none) {
+  .card-face.clickable:hover { transform: none; box-shadow: 0 4px 10px var(--shadow); }
+  .card-face.clickable:active { transform: translateY(-8px); }
+  .player.selectable:hover { transform: none; }
+  .mini-card:hover { transform: none; }
+  .btn:hover, .chip-btn:hover, .rv-mode:hover, .rv-seat.swap:hover { transform: none; }
+  .center-discard:hover { transform: none; }
+}
+
+/* 平板 */
+@media (max-width: 1024px) {
+  .player { width: 138px; }
+  .self-panel { width: 196px; }
+  .log-panel { width: 192px; }
+}
+
+/* 手机 */
+@media (max-width: 640px) {
+  .table-wrap { padding: 0 6px 4px; }
+  .topbar { padding: 6px 8px; font-size: 12px; }
+  .tb-left { gap: 8px; }
+  .tb-menu-btn { width: 32px; height: 28px; font-size: 14px; }
+  .tb-mode { letter-spacing: 1px; }
+  .tb-phase { gap: 6px; font-size: 12px; }
+  .opp-grid { gap: 6px; padding: 8px 2px 4px; }
+  .player { width: 112px; padding: 6px 7px; border-radius: 9px; gap: 4px; }
+  .player.is-turn::after { font-size: 9px; padding: 1px 5px; top: -8px; }
+  .p-portrait { width: 28px; height: 28px; top: 6px; right: 6px; }
+  .p-pchar { font-size: 17px; }
+  .p-name { font-size: 12px; } .p-general { font-size: 10px; }
+  .p-badges .p-faction, .p-identity, .p-team { font-size: 10px; padding: 0 5px; }
+  .hp-bead { width: 8px; height: 8px; }
+  .skill-tag, .equip-chip, .judge-chip, .token-chip { font-size: 10px; }
+  .self-panel { width: 152px; }
+  .self-panel .p-portrait { width: 36px; height: 36px; }
+  .self-panel .p-pchar { font-size: 22px; }
+  .self-panel .p-name { font-size: 14px; }
+  .card-face { width: 50px; height: 70px; padding: 3px 4px; }
+  .cf-name { font-size: 14px; } .cf-rank { font-size: 13px; } .cf-suit { font-size: 11px; } .cf-type { font-size: 8px; }
+  /* 手牌横向滚动，避免竖屏堆叠占满屏幕 */
+  .hand-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; min-height: 76px; padding: 0 4px 4px; -webkit-overflow-scrolling: touch; max-width: 100vw; }
+  .hand-row .card-face { flex: 0 0 auto; }
+  .action-bar { padding: 6px 0 2px; gap: 5px; }
+  .ab-title { font-size: 14px; }
+  .ab-controls { gap: 6px; }
+  /* 日志收到顶部、缩小；聊天收窄 */
+  .log-panel { width: 144px; max-height: 100px; bottom: auto; top: 44px; left: 6px; font-size: 11px; padding: 5px 7px; opacity: .92; }
+  .chat-box { width: 196px; right: 6px; bottom: 6px; }
+  .chat-box.collapsed { width: 128px; }
+  .chat-msgs { height: 108px; }
+  .fx-judge .fxj-card { width: 78px; height: 108px; }
+  .fxj-name { font-size: 24px; } .fxj-suit { font-size: 26px; }
+  .gameover-body { min-width: 0; }
+  .go-result { font-size: 34px; letter-spacing: 5px; }
+}
+
+/* 横屏手机：进一步压缩竖直空间 */
+@media (max-height: 460px) and (orientation: landscape) {
+  .opp-grid { padding: 4px 2px 2px; }
+  .table-center { min-height: 48px; padding: 2px 0; }
+  .deck-pile, .discard-empty { height: 58px; width: 44px; }
+  .hand-row { min-height: 64px; }
+  .log-panel { display: none; }
 }

@@ -55,8 +55,9 @@ async function applyRunblade(engine, user) {
   }
   const suits = Object.keys(bySuit);
   if (suits.length < 3) return; // 凑不齐3种花色则无法发动
-  let limit = await triggerSkill(engine, 'handLimit', { player: user, base: user.hp });
-  if (typeof limit !== 'number') limit = user.hp;
+  const baseLimit = engine._handLimitBase ? engine._handLimitBase(user) : user.hp;
+  let limit = await triggerSkill(engine, 'handLimit', { player: user, base: baseLimit });
+  if (typeof limit !== 'number') limit = baseLimit;
   const agent = engine.agentOf?.(user);
   let go;
   if (agent?.kind === 'ai') go = user.hand.length - 3 < limit; // 弃3后能净摸牌才划算
