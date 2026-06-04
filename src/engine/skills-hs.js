@@ -761,11 +761,48 @@ export const HS_SKILLS = {
     name: '旋转', active: true,
     desc: '出牌阶段观看一名角色手牌，获得其一张牌并给其一张牌（每回合至多3次）。',
     async action(engine, { player, move }) {
-      const t = engine.playerById(move.targetId); if (!t) return;
+      const t = engine.playerById(move.targetId); if (!t || t === player) return;
       player.flags.xuanzhuanCount = (player.flags.xuanzhuanCount || 0) + 1;
-      if (t.hand.length) { const c = t.hand[Math.floor(Math.random() * t.hand.length)]; removeFrom(t.hand, c); player.hand.push(c); }
-      if (player.hand.length) { const g = player.hand[Math.floor(Math.random() * player.hand.length)]; removeFrom(player.hand, g); t.hand.push(g); }
-      engine.log(`${player.name} 对 ${t.name} 发动【旋转】，换走一张牌。`, 'play'); engine.changed();
+      const isAI = engine.agentOf?.(player)?.kind === 'ai';
+      // 价值估算（AI 取最有价值，给最无价值）
+      const val = (c) => {
+        const d = CARD_DEFS[c.kind] || {};
+        if (cardAs(c) === 'tao') return 9;
+        if (d.type === CARD_TYPE.EQUIP) return 8;
+        if (cardAs(c) === 'jiu') return 7;
+        if (d.type === CARD_TYPE.TRICK) return 6;
+        if (cardAs(c) === 'sha' || cardAs(c) === 'shan') return 5;
+        return 4;
+      };
+      // 1) 观看对方手牌并选择获得一张
+      if (t.hand.length) {
+        let taken;
+        if (isAI) taken = [...t.hand].sort((a, b) => val(b) - val(a))[0];
+        else {
+          const r = await engine.ask(player, {
+            type: REQ.CHOOSE_CARD, title: `旋转：观看 ${t.name} 的手牌，选择获得一张`,
+            fromPlayer: t.id, visibleCards: t.hand.map((c) => ({ card: c, zone: '手牌' })),
+          });
+          taken = t.hand.find((c) => c.id === r?.card) || t.hand[0];
+        }
+        removeFrom(t.hand, taken); player.hand.push(taken);
+        engine.log(`${player.name} 发动【旋转】，获得 ${t.name} 的一张手牌。`, 'play');
+      }
+      // 2) 选择给其一张牌
+      if (player.hand.length) {
+        let given;
+        if (isAI) given = [...player.hand].sort((a, b) => val(a) - val(b))[0];
+        else {
+          const r = await engine.ask(player, {
+            type: REQ.CHOOSE_CARD, title: `旋转：选择给 ${t.name} 一张牌`,
+            fromPlayer: player.id, visibleCards: player.hand.map((c) => ({ card: c, zone: '手牌' })),
+          });
+          given = player.hand.find((c) => c.id === r?.card) || player.hand[0];
+        }
+        removeFrom(player.hand, given); t.hand.push(given);
+        engine.log(`${player.name}【旋转】交给 ${t.name} 一张牌。`);
+      }
+      engine.changed();
     },
   },
 
