@@ -251,9 +251,9 @@ const HS_DECK_LIST = [
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),
-  // 奥秘（全 8 种）
-  ...genN('bingdongxianjing', 2), ...genN('baozhaxianjing', 2), ...genN('duoshanmijing', 1), ...genN('minjie', 1),
-  ...genN('binkuai', 2), ...genN('yiyanhuanyan', 1), ...genN('xuneng', 1), ...genN('aoshupingzhang', 1),
+  // 奥秘（全 8 种，每种 1 张）
+  ...genN('bingdongxianjing', 1), ...genN('baozhaxianjing', 1), ...genN('duoshanmijing', 1), ...genN('minjie', 1),
+  ...genN('binkuai', 1), ...genN('yiyanhuanyan', 1), ...genN('xuneng', 1), ...genN('aoshupingzhang', 1),
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）
