@@ -237,8 +237,8 @@ export class AIAgent {
     const gujia = hasSkill(player, 'gujia');
     for (const c of hand) {
       if (!c.slot || c.frozen) continue;
-      // 万千箴言剑等：仅能作为本回合打出的第7张牌使用
-      if (CARD_DEFS[c.kind]?.seventhOnly && (player.flags?.cardsUsed || 0) < 6) continue;
+      // 万千箴言剑等：仅能作为本回合打出的第7张牌使用（恰好用过6张时才可装备）
+      if (CARD_DEFS[c.kind]?.seventhOnly && (player.flags?.cardsUsed || 0) !== 6) continue;
       const slotFree = !player.equips[c.slot];
       const dualFree = gujia && (c.slot === EQUIP_SLOT.WEAPON || c.slot === EQUIP_SLOT.ARMOR) && player.equips[c.slot] && !(player.equips2 && player.equips2[c.slot]);
       if (slotFree || dualFree) return { type: 'play', card: c, targets: [] };
