@@ -1,0 +1,17 @@
+{
+  "name": "sanguosha-online",
+  "version": "1.0.0",
+  "description": "三国杀基础版 —— 本地对战 + 公共 MQTT 免费联机（军争/2v2/单挑）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "mqtt": "^5.15.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
