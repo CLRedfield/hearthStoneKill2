@@ -34,6 +34,7 @@ const IDENTITY_OPTS = [
 
 // 渲染房间视图到 container
 export function renderRoomView(container, state, h) {
+  closeSeatMenu(); // 重新渲染时关闭可能残留的换座下拉
   clear(container);
   const root = el('div', { class: 'room-view' });
 
@@ -76,11 +77,21 @@ export function renderRoomView(container, state, h) {
     root.appendChild(el('div', { class: 'rv-section' }, [el('div', { class: 'rv-label', text: '人数' }), counts]));
   }
 
-  // 座位（可点击换位 / 每个 AI 单独调难度）
+  // 座位（右侧「换座位」按钮 → 下拉选择目标 / 每个 AI 单独调难度）
   const seatGrid = el('div', { class: 'rv-seats' });
+  // 哪些座位可作为换座来源：本地=任意；房主=真人座位；普通玩家=仅自己
+  const eligibleSource = (i) => {
+    const s = state.seats[i];
+    if (!state.canSwap) return false;
+    if (state.canEdit) return state.isLocal ? true : s.kind === 'human';
+    return !!s.isYou;
+  };
+  // 某来源座位的可换目标：本地=其他任意座位；联机=其他真人座位
+  const swapTargets = (i) => state.seats
+    .map((s, j) => ({ s, j }))
+    .filter(({ s, j }) => j !== i && (state.isLocal ? true : s.kind === 'human'));
   state.seats.forEach((s, i) => {
     const facecls = s.kind === 'empty' ? 'empty' : (s.kind === 'ai' ? 'ai' : 'human');
-    const isSel = state.selectedSeat === i;
     const children = [
       el('span', { class: 'rvs-idx', text: `#${i + 1}` }),
       el('span', { class: 'rvs-name', text: s.name }),
@@ -99,14 +110,19 @@ export function renderRoomView(container, state, h) {
         onclick: (e) => { e.stopPropagation(); h.onKick(i); },
       }));
     }
-    const seatEl = el('div', {
-      class: `rv-seat ${facecls} ${s.isYou ? 'you' : ''} ${isSel ? 'sel' : ''} ${state.canSwap ? 'swap' : ''}`,
+    // 换座位按钮（最右侧）
+    if (eligibleSource(i) && swapTargets(i).length) {
+      children.push(el('button', {
+        class: 'seat-swap-btn', title: '换座位', text: '⇄ 换座',
+        onclick: (e) => { e.stopPropagation(); openSeatMenu(e.currentTarget, i, swapTargets(i), state, h); },
+      }));
+    }
+    seatGrid.appendChild(el('div', {
+      class: `rv-seat ${facecls} ${s.isYou ? 'you' : ''}`,
       dataset: { idx: String(i) },
-    }, children);
-    if (state.canSwap) attachSeatInteract(seatEl, i, seatGrid, h);
-    seatGrid.appendChild(seatEl);
+    }, children));
   });
-  const swapHint = state.canEdit ? '（点两个座位互换，或直接拖动座位；✕ 踢出）' : (state.canSwap ? '（点或拖动座位申请换位）' : '');
+  const swapHint = state.canEdit ? '（点座位右侧「⇄换座」选择目标；✕ 踢出）' : (state.canSwap ? '（点你座位右侧「⇄换座」申请换位）' : '');
   const seatSection = el('div', { class: 'rv-section' }, [
     el('div', { class: 'rv-label', text: `座位（${state.seats.filter((s) => s.kind !== 'empty').length}/${state.seats.length}）${swapHint}` }),
     seatGrid,
@@ -156,41 +172,45 @@ export function renderRoomView(container, state, h) {
   container.appendChild(root);
 }
 
-// 座位交互：轻点=沿用原“点击换位”，拖动=拖到另一座位上互换（支持触屏/鼠标）
-function attachSeatInteract(seatEl, idx, grid, h) {
-  seatEl.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return; // 座位上的难度/踢人按钮自行处理
-    if (e.button != null && e.button !== 0) return; // 仅左键/触摸
-    e.preventDefault();
-    const startX = e.clientX, startY = e.clientY;
-    let moved = false, dropIdx = null;
-    try { seatEl.setPointerCapture(e.pointerId); } catch (_) {}
-    const clearTargets = () => grid.querySelectorAll('.rv-seat.drop-target').forEach((n) => n.classList.remove('drop-target'));
-    const onMove = (ev) => {
-      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 8) return;
-      moved = true; seatEl.classList.add('dragging');
-      clearTargets();
-      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.rv-seat');
-      if (over && over !== seatEl && grid.contains(over)) { over.classList.add('drop-target'); dropIdx = Number(over.dataset.idx); }
-      else dropIdx = null;
-    };
-    const onUp = () => {
-      seatEl.removeEventListener('pointermove', onMove);
-      seatEl.removeEventListener('pointerup', onUp);
-      seatEl.removeEventListener('pointercancel', onUp);
-      seatEl.classList.remove('dragging'); clearTargets();
-      try { seatEl.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (moved) {
-        if (dropIdx != null && dropIdx !== idx) {
-          if (h.onSeatSwap) h.onSeatSwap(idx, dropIdx);
-          else { h.onSeatClick(idx); h.onSeatClick(dropIdx); }
-        }
-      } else {
-        h.onSeatClick(idx); // 轻点 = 原有点击换位逻辑
-      }
-    };
-    seatEl.addEventListener('pointermove', onMove);
-    seatEl.addEventListener('pointerup', onUp);
-    seatEl.addEventListener('pointercancel', onUp);
-  });
+// ===== 换座下拉栏（精致小浮层，支持鼠标/触屏） =====
+let _seatMenu = null;
+function _onSeatMenuDocDown(e) { if (_seatMenu && !_seatMenu.contains(e.target)) closeSeatMenu(); }
+function _onSeatMenuKey(e) { if (e.key === 'Escape') closeSeatMenu(); }
+function closeSeatMenu() {
+  if (!_seatMenu) return;
+  _seatMenu.remove(); _seatMenu = null;
+  document.removeEventListener('pointerdown', _onSeatMenuDocDown, true);
+  document.removeEventListener('keydown', _onSeatMenuKey, true);
+}
+function openSeatMenu(anchor, fromIdx, targets, state, h) {
+  const reopening = _seatMenu && _seatMenu._fromIdx === fromIdx;
+  closeSeatMenu();
+  if (reopening) return; // 再次点击同一按钮 = 关闭
+  const fromName = state.seats[fromIdx]?.name || `#${fromIdx + 1}`;
+  const menu = el('div', { class: 'seat-menu' }, [
+    el('div', { class: 'seat-menu-title', text: `「${fromName}」与谁互换？` }),
+    el('div', { class: 'seat-menu-list' }, targets.map(({ s, j }) => el('button', {
+      class: 'seat-menu-item',
+      onclick: () => { closeSeatMenu(); if (h.onSeatSwap) h.onSeatSwap(fromIdx, j); },
+    }, [
+      el('span', { class: 'smi-idx', text: `#${j + 1}` }),
+      el('span', { class: 'smi-name', text: s.name }),
+      s.tag ? el('span', { class: `smi-tag tag-${s.kind}`, text: s.tag }) : null,
+    ]))),
+  ]);
+  menu._fromIdx = fromIdx;
+  document.body.appendChild(menu);
+  // 定位：锚点按钮下方，溢出屏幕则上翻 / 夹紧
+  const r = anchor.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+  let top = r.bottom + 6;
+  if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  _seatMenu = menu;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', _onSeatMenuDocDown, true);
+    document.addEventListener('keydown', _onSeatMenuKey, true);
+  }, 0);
 }
