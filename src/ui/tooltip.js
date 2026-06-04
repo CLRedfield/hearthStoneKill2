@@ -40,14 +40,15 @@ export function hideTip() {
   hideTimer = setTimeout(() => tipEl && tipEl.classList.remove('show'), 60);
 }
 
-// 绑定到元素：悬停显示，点击切换（适配触屏）
+// 绑定到元素：桌面端悬停显示；移动端单击即显示（不再需要长按）
+// 关键：触屏点击会先后触发合成的 mouseenter 与 click，若 click 用“切换”会立刻把刚显示的提示关掉，
+// 故 click 一律「显示」，由点击其它位置（document click）来关闭。
 export function attachTip(node, content) {
   node.addEventListener('mouseenter', () => showTip(node, content));
   node.addEventListener('mouseleave', () => hideTip());
   node.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (tipEl && tipEl.classList.contains('show')) hideTip();
-    else showTip(node, content);
+    showTip(node, content);
   });
   return node;
 }

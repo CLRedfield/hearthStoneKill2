@@ -2,6 +2,8 @@
 import { el, clear } from './dom.js';
 import { SUIT_SYMBOL, FACTION_NAME, FACTION_COLOR } from '../engine/constants.js';
 import { rankLabel } from '../engine/constants.js';
+import { CARD_DEFS } from '../engine/cards.js';
+import { attachTip } from './tooltip.js';
 
 const overlayRoot = () => document.getElementById('overlay-root');
 const toastRoot = () => document.getElementById('toast-root');
@@ -78,13 +80,18 @@ export function chooseGeneralDialog(generals) {
 // 一张小卡片的 DOM（用于弹层展示）
 export function miniCardNode(card, onClick) {
   const red = card.red;
+  const def = CARD_DEFS[card.kind] || {};
   const node = el('div', {
     class: `mini-card ${red ? 'red' : 'black'}`,
-    onclick: onClick ? () => onClick(card) : undefined,
   }, [
     el('div', { class: 'mc-corner', text: `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}` }),
     el('div', { class: 'mc-name', text: card.name }),
   ]);
+  // 单击/悬停显示精美介绍（移动端无需长按）
+  const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[def.type] || '';
+  const accent = { equip: '#2e8b57', trick: '#8a5bba', delayed: '#d08a3a', secret: '#b186ff' }[def.type] || 'var(--gold)';
+  if (def.name) attachTip(node, { title: card.name, sub: [typeLabel, `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}`].filter(Boolean).join(' · '), desc: def.desc || '', accent });
+  if (onClick) node.addEventListener('click', () => onClick(card));
   return node;
 }
 
