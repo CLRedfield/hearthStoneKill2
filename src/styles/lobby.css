@@ -184,10 +184,18 @@
 .broker-alt { font-size: 12px; color: var(--text-dim); background: var(--ink-1); border: 1px solid rgba(201,162,39,.3); border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .14s; }
 .broker-alt:hover { border-color: var(--gold); color: var(--gold-bright); }
 
-/* ===== 座位拖动 ===== */
-.rv-seat.swap { touch-action: none; }
-.rv-seat.dragging { opacity: .45; }
-.rv-seat.drop-target { border-color: var(--gold-bright); box-shadow: 0 0 0 2px rgba(236,202,94,.55); background: rgba(201,162,39,.14); }
+/* ===== 换座位按钮 + 下拉栏 ===== */
+.seat-swap-btn { margin-left: 6px; flex: 0 0 auto; font-family: inherit; font-size: 11px; color: var(--gold-bright); background: var(--ink-1); border: 1px solid rgba(201,162,39,.45); border-radius: 7px; padding: 3px 9px; cursor: pointer; line-height: 1.4; white-space: nowrap; transition: all .12s; }
+.seat-swap-btn:hover { background: var(--gold); color: #281c05; border-color: var(--gold-bright); }
+.seat-menu { position: fixed; z-index: 2200; min-width: 180px; max-width: 260px; max-height: 50vh; overflow-y: auto; background: linear-gradient(180deg, #251d16, #15100a); border: 1px solid var(--gold); border-radius: 11px; padding: 8px; box-shadow: 0 16px 40px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05); animation: seatMenuIn .14s ease; }
+@keyframes seatMenuIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.seat-menu-title { font-size: 12px; color: var(--text-dim); padding: 2px 6px 7px; border-bottom: 1px solid rgba(201,162,39,.18); margin-bottom: 5px; }
+.seat-menu-list { display: flex; flex-direction: column; gap: 3px; }
+.seat-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-family: inherit; font-size: 14px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 9px; cursor: pointer; transition: all .12s; }
+.seat-menu-item:hover { background: rgba(201,162,39,.12); border-color: rgba(201,162,39,.4); }
+.smi-idx { color: var(--gold); font-weight: 700; font-size: 13px; flex: 0 0 auto; }
+.smi-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smi-tag { font-size: 11px; padding: 1px 7px; border-radius: 7px; flex: 0 0 auto; }
 
 /* ===== 图鉴室入口 ===== */
 .codex-entry { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; margin-top: 2px; }
@@ -257,5 +265,7 @@
   .count-btn { width: 46px; height: 46px; }
   .rv-seat { padding: 12px 12px; }
   .seat-diff, .seat-kick { width: 30px; height: 30px; }
+  .seat-swap-btn { padding: 7px 12px; font-size: 12px; }
+  .seat-menu-item { padding: 11px 10px; }
   .codex-tab, .codex-pack { padding: 10px 18px; }
 }
