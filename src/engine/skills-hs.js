@@ -43,25 +43,47 @@ async function autoReplay(engine, player, info) {
 const cardInfo = (c) => ({ kind: c.kind, suit: c.suit, number: c.number, red: c.red });
 
 // 立即使用一张“实体牌”（暗影箭雨夺取后使用）：自动选目标，由 user 结算
-async function useRealCard(engine, user, card) {
+// 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
+async function useRealCard(engine, user, card, interactive = false) {
   if (!card || !user.alive) return;
   const { resolveCard, validTargets, shaTargets } = await import('./effects.js');
   const def = CARD_DEFS[card.kind] || {};
   const role = cardAs(card);
   const others = engine.alivePlayers.filter((p) => p !== user);
+  const human = interactive && engine.agentOf?.(user)?.kind !== 'ai';
+  // 候选目标排序：非友优先（AI 取首个）；byHp=true 残血优先，否则手牌多优先
+  const prefer = (list, byHp) => list.slice().sort((a, b) => {
+    const aa = engine.isAlly(user, a) ? 1 : 0, bb = engine.isAlly(user, b) ? 1 : 0;
+    if (aa !== bb) return aa - bb;
+    return byHp ? a.hp - b.hp : b.hand.length - a.hand.length;
+  });
+  const pick = async (cands) => {
+    if (!cands.length) return null;
+    if (!human) return cands[0];
+    const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: `立即释放【${card.name}】：选择目标`, options: cands.map((c) => ({ value: c.id, label: c.name })) });
+    return engine.playerById(r?.value) || cands[0];
+  };
   let targets = [];
   if (role === 'sha') {
-    const t = shaTargets(engine, user).filter((x) => !engine.isAlly(user, x));
-    if (!t.length) { engine.discard.push(card); return; } targets = [t.sort((a, b) => a.hp - b.hp)[0]];
+    const cands = prefer(shaTargets(engine, user), true);
+    if (!cands.length) { engine.discard.push(card); return; }
+    const t = await pick(cands); if (!t) { engine.discard.push(card); return; } targets = [t];
   } else if (role === 'tao') { if (user.hp >= user.maxHp) { engine.discard.push(card); return; } }
   else if (role === 'jiu') { /* self */ }
   else if (def.type === CARD_TYPE.EQUIP) { /* 装备给自己，targets 空 */ }
-  else if (def.type === CARD_TYPE.DELAYED) { const vt = others.filter((p) => !engine.isAlly(user, p)); if (vt.length) targets = [vt.sort((a, b) => b.hp - a.hp)[0]]; else { engine.discard.push(card); return; } }
-  else if (def.type === CARD_TYPE.TRICK && def.as !== 'wuxie') {
+  else if (def.type === CARD_TYPE.DELAYED) {
+    const cands = prefer(validTargets(engine, user, card), false);
+    if (!cands.length) { engine.discard.push(card); return; }
+    const t = await pick(cands); if (!t) { engine.discard.push(card); return; } targets = [t];
+  } else if (def.type === CARD_TYPE.TRICK && def.as !== 'wuxie') {
     if (def.target === 'self') targets = [user];
     else if (def.target === 'all') targets = engine.alivePlayers.slice();
     else if (def.target === 'all_other') targets = others;
-    else { const vt = validTargets(engine, user, card).filter((x) => !engine.isAlly(user, x)); if (!vt.length) { engine.discard.push(card); return; } targets = [vt.sort((a, b) => b.hand.length - a.hand.length)[0]]; }
+    else {
+      const cands = prefer(validTargets(engine, user, card), false);
+      if (!cands.length) { engine.discard.push(card); return; }
+      const t = await pick(cands); if (!t) { engine.discard.push(card); return; } targets = [t];
+    }
   } else { engine.discard.push(card); return; }
   engine.log(`${user.name} 立即使用【${card.name}】！`, 'play');
   await resolveCard(engine, { user, card, targets, options: {} });
@@ -1239,23 +1261,31 @@ export const HS_SKILLS = {
   // ===== 尤格萨隆（古神）=====
   mingyun: {
     name: '命运之轮', active: true, perTurn: true,
-    desc: '出牌阶段：由你开始，每名角色摸一张牌并立即释放（觉醒后每人摸场上人数张）；此过程中你免疫所有伤害（每回合一次）。',
+    desc: '出牌阶段：由你开始，每名角色摸一张牌并立即释放（自行选择目标）；觉醒后改为你自己摸“场上人数”张并立即释放。此过程中你免疫所有伤害（每回合一次）。',
     async action(engine, { player }) {
       player.flags.mingyunUsed = true;
-      const each = player.skillState.yoggAwake ? engine.alivePlayers.length : 1;
-      engine.log(`${player.name} 发动【命运之轮】！由其开始，每人摸 ${each} 张并立即释放。`, 'play');
+      // 释放助手：抽到的牌移出手牌后由其拥有者立即释放（人类自选目标，AI 启发式）
+      const release = async (p, n) => {
+        const got = engine.drawCards(p, n);
+        for (const c of got) {
+          if (engine.over || !p.alive) break;
+          if (!p.hand.includes(c)) continue; // 可能被古尔丹之手等即时弃置
+          removeFrom(p.hand, c);
+          await useRealCard(engine, p, c, true);
+        }
+      };
       player.flags.immuneAllTurn = true; // 此过程中免疫所有伤害
       try {
-        const order = engine._orderFrom(player); // 由你开始的座位顺序
-        for (const p of order) {
-          if (engine.over) break;
-          if (!p.alive) continue;
-          const got = engine.drawCards(p, each);
-          for (const c of got) {
-            if (engine.over || !p.alive) break;
-            if (!p.hand.includes(c)) continue; // 可能被古尔丹之手等即时弃置
-            removeFrom(p.hand, c);
-            await useRealCard(engine, p, c);
+        if (player.skillState.yoggAwake) {
+          const n = engine.alivePlayers.length;
+          engine.log(`${player.name} 发动觉醒·【命运之轮】！自己摸 ${n} 张并逐张立即释放。`, 'play');
+          await release(player, n);
+        } else {
+          engine.log(`${player.name} 发动【命运之轮】！由其开始，每人摸1张并立即释放。`, 'play');
+          for (const p of engine._orderFrom(player)) { // 由你开始的座位顺序
+            if (engine.over) break;
+            if (!p.alive) continue;
+            await release(p, 1);
           }
         }
       } finally {
@@ -1271,14 +1301,22 @@ export const HS_SKILLS = {
     },
   },
   mingyunzhishou: {
-    name: '命运之手', desc: '觉醒技：回合开始时若你体力≤3，失去1点体力上限并强化【命运之轮】【护心】。',
+    name: '命运之手', desc: '觉醒技：回合开始时若你体力≤3，你可以选择失去1点体力上限并强化【命运之轮】【护心】。',
     triggers: {
       async startPhase(engine, { player }) {
-        if (!player.skillState.yoggAwake && player.hp <= 3) {
-          player.skillState.yoggAwake = true;
-          player.maxHp = Math.max(1, player.maxHp - 1); if (player.hp > player.maxHp) player.hp = player.maxHp;
-          engine.log(`✨ ${player.name} 觉醒【命运之手】！`, 'win'); engine.changed();
+        if (player.skillState.yoggAwake || player.hp > 3) return;
+        let go = true;
+        if (engine.agentOf?.(player)?.kind !== 'ai') {
+          const r = await engine.ask(player, {
+            type: REQ.CHOOSE_OPTION, title: '命运之手：是否觉醒？（失去1点体力上限，强化【命运之轮】与【护心】）',
+            options: [{ value: 'yes', label: '觉醒（-1 体力上限）' }, { value: 'no', label: '暂不觉醒' }],
+          });
+          go = r?.value === 'yes';
         }
+        if (!go) return;
+        player.skillState.yoggAwake = true;
+        player.maxHp = Math.max(1, player.maxHp - 1); if (player.hp > player.maxHp) player.hp = player.maxHp;
+        engine.log(`✨ ${player.name} 觉醒【命运之手】！`, 'win'); engine.changed();
       },
     },
   },
