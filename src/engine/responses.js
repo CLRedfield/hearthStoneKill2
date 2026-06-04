@@ -63,8 +63,8 @@ export function cardPlayOptions(engine, p, card) {
 
   // 自然用法
   if (def.type === CARD_TYPE.EQUIP) {
-    // 万千箴言剑：仅能作为本回合打出的第7张牌使用
-    if (def.seventhOnly && (p.flags?.cardsUsed || 0) < 6) return opts;
+    // 万千箴言剑：仅能作为本回合打出的第7张牌使用（已用恰好6张时才可用，更多则错过时机）
+    if (def.seventhOnly && (p.flags?.cardsUsed || 0) !== 6) return opts;
     opts.push({ kind: card.kind, asName: card.name, card, needTarget: false });
   } else if (def.type === CARD_TYPE.DELAYED) {
     if (card.kind === 'pingzhuangshandian') {
