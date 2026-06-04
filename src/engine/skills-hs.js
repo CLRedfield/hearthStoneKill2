@@ -63,7 +63,7 @@ async function useRealCard(engine, user, card) {
     else if (def.target === 'all_other') targets = others;
     else { const vt = validTargets(engine, user, card).filter((x) => !engine.isAlly(user, x)); if (!vt.length) { engine.discard.push(card); return; } targets = [vt.sort((a, b) => b.hand.length - a.hand.length)[0]]; }
   } else { engine.discard.push(card); return; }
-  engine.log(`${user.name} 立即使用夺得的【${card.name}】！`, 'play');
+  engine.log(`${user.name} 立即使用【${card.name}】！`, 'play');
   await resolveCard(engine, { user, card, targets, options: {} });
 }
 
@@ -1239,13 +1239,28 @@ export const HS_SKILLS = {
   // ===== 尤格萨隆（古神）=====
   mingyun: {
     name: '命运之轮', active: true, perTurn: true,
-    desc: '出牌阶段：每名角色摸一张牌（觉醒后改为每人摸场上人数张），本回合内你免疫所有伤害（每回合一次）。',
+    desc: '出牌阶段：由你开始，每名角色摸一张牌并立即释放（觉醒后每人摸场上人数张）；此过程中你免疫所有伤害（每回合一次）。',
     async action(engine, { player }) {
       player.flags.mingyunUsed = true;
-      player.flags.immuneAllTurn = true;
       const each = player.skillState.yoggAwake ? engine.alivePlayers.length : 1;
-      engine.log(`${player.name} 发动【命运之轮】！每人摸 ${each} 张，本回合免疫所有伤害。`, 'play');
-      for (const p of engine.alivePlayers) engine.drawCards(p, each);
+      engine.log(`${player.name} 发动【命运之轮】！由其开始，每人摸 ${each} 张并立即释放。`, 'play');
+      player.flags.immuneAllTurn = true; // 此过程中免疫所有伤害
+      try {
+        const order = engine._orderFrom(player); // 由你开始的座位顺序
+        for (const p of order) {
+          if (engine.over) break;
+          if (!p.alive) continue;
+          const got = engine.drawCards(p, each);
+          for (const c of got) {
+            if (engine.over || !p.alive) break;
+            if (!p.hand.includes(c)) continue; // 可能被古尔丹之手等即时弃置
+            removeFrom(p.hand, c);
+            await useRealCard(engine, p, c);
+          }
+        }
+      } finally {
+        player.flags.immuneAllTurn = false; // 过程结束，免疫解除
+      }
       engine.changed();
     },
   },
