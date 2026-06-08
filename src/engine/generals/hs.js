@@ -155,7 +155,7 @@ export const HS_GENERALS = {
   nathaly: {
     id: 'nathaly', name: '娜塔莉塞林', faction: FACTION.ALLIANCE, hp: 4, title: '遗忘之影',
     skills: ['xuwu', 'xishou'],
-    bio: '虚无：弃一张牌并指定一名角色，其弃置所有与你弃牌花色相同的牌。吸收（锁定技）：你消灭一名角色时获得其所有牌并将体力上限变为其上限且回满。',
+    bio: '虚无：弃一张牌并指定一名角色，其弃置所有与你弃牌颜色相同的牌。吸收（锁定技）：你消灭一名角色时获得其所有牌，并使体力上限增加其上限值且回满。',
   },
   tess: {
     id: 'tess', name: '苔丝', faction: FACTION.ALLIANCE, hp: 4, title: '黑衣猎人',
