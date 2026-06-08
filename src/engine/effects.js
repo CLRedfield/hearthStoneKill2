@@ -107,6 +107,13 @@ export function validTargets(engine, user, card) {
 
 // ---------- 主结算分发 ----------
 export async function resolveCard(engine, ctx) {
+  // 记录当前结算者：其使用/打出后进入弃牌堆的牌可被【低吼】劫走（嵌套时保存恢复）
+  const _prevActor = engine._actingUser;
+  engine._actingUser = ctx.user;
+  try { return await _resolveCard(engine, ctx); }
+  finally { engine._actingUser = _prevActor; }
+}
+async function _resolveCard(engine, ctx) {
   const { user, card, targets } = ctx;
   const def = CARD_DEFS[card.kind];
 
@@ -613,7 +620,7 @@ async function resolveShaOn(engine, user, target, card) {
     if (resp?.card) {
       const srcs = resp.card.virtual ? resp.card.sourceCards : [resp.card];
       srcs.forEach((c) => removeFrom(target.hand, c));
-      engine.toDiscard([resp.card]);
+      engine.toDiscard([resp.card], target);
       const cands = engine.alivePlayers.filter((p) => p !== target);
       let victim = null;
       if (cands.length) {
@@ -667,7 +674,7 @@ export async function getOneDodge(engine, target, ctx) {
       if (r?.card) {
         const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
         srcs.forEach((c) => removeFrom(ally.hand, c));
-        engine.toDiscard([r.card]);
+        engine.toDiscard([r.card], ally);
         engine.log(`${ally.name} 发动【护驾】替 ${target.name} 打出【闪】。`, 'good');
         return { shan: r.card.virtual ? null : r.card };
       }
@@ -677,7 +684,7 @@ export async function getOneDodge(engine, target, ctx) {
   if (resp?.card) {
     const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
     sources.forEach((c) => removeFrom(target.hand, c));
-    engine.toDiscard([resp.card]);
+    engine.toDiscard([resp.card], target);
     applyShanEffect(engine, target, resp.card, ctx);
     return { shan: resp.card.virtual ? null : resp.card };
   }
@@ -702,7 +709,7 @@ async function askSha(engine, player, ctx) {
       if (r?.card) {
         const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
         srcs.forEach((c) => removeFrom(ally.hand, c));
-        engine.toDiscard([r.card]);
+        engine.toDiscard([r.card], ally);
         engine.log(`${ally.name} 发动【激将】替 ${player.name} 打出【杀】。`, 'good');
         return true;
       }
@@ -712,7 +719,7 @@ async function askSha(engine, player, ctx) {
   if (resp?.card) {
     const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
     sources.forEach((c) => removeFrom(player.hand, c));
-    engine.toDiscard([resp.card]);
+    engine.toDiscard([resp.card], player);
     return true;
   }
   return false;
@@ -913,7 +920,7 @@ async function askAnyWuxie(engine, { card, targetPlayer, isNullified }) {
     });
     if (resp?.card) {
       removeFrom(p.hand, resp.card);
-      engine.toDiscard([resp.card]);
+      engine.toDiscard([resp.card], p);
       return p;
     }
   }

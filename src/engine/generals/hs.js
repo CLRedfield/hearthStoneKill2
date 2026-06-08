@@ -22,7 +22,7 @@ export const HS_GENERALS = {
   nefarian: {
     id: 'nefarian', name: '奈法利安', faction: FACTION.NEUTRAL, hp: 3, title: '黑翼血环',
     skills: ['dihou'],
-    bio: '低吼：指定一名角色，直到你下回合开始前，其失去并进入弃牌堆的牌改由你获得。',
+    bio: '低吼：指定一名角色，直到你下回合开始前，其所有置入弃牌堆的牌（使用/打出/被弃）都改由你获得。',
   },
   octopus: {
     id: 'octopus', name: '八爪巨怪', faction: FACTION.NEUTRAL, hp: 4, title: '纷纷扬沙',
@@ -64,7 +64,7 @@ export const HS_GENERALS = {
   kelthuzad: {
     id: 'kelthuzad', name: '克尔苏加德', faction: FACTION.SCOURGE, hp: 4, title: '巫妖',
     skills: ['hanshuang', 'huishou', 'chongsheng'],
-    bio: '寒霜：令一名角色下个回合手牌上限-4。回收（锁定技）：一名角色回合结束弃牌后，须给你等量的牌。重生（锁定技）：一名角色在其自己或你的回合死亡时，你可使其以1点体力复活并摸4张。',
+    bio: '寒霜：令一名角色下个回合手牌上限-3。回收（锁定技）：一名角色回合结束弃牌后，须给你等量的牌。重生（锁定技）：一名角色在其自己或你的回合死亡时，你可使其以1点体力复活并摸4张。',
   },
   loatheb: {
     id: 'loatheb', name: '洛欧塞布', faction: FACTION.SCOURGE, hp: 5, title: '沼泽毒菌',
