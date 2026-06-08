@@ -1,8 +1,14 @@
 // ====================== 炉石杀 技能实现 ======================
 // 注册表条目：{ name, desc, active?, perTurn?, triggers?:{drawCount,handLimit,dealDamage,usedSha,beforeDeath,...}, action? }
 // triggers 由 skills.js 的泛化分发在各时机调用；action 为出牌阶段主动技。
-import { removeFrom } from '../util.js';
+import { removeFrom, uid } from '../util.js';
 import { virtualCard, isSha, cardAs, CARD_DEFS } from './cards.js';
+
+// 生成一张“实体”延时/普通牌（非虚拟，能正常进出各区，避免虚拟牌空 sourceCards 导致的复制）
+function makeRealCard(kind, suit = 'spade', number = 1) {
+  const def = CARD_DEFS[kind] || {};
+  return { id: uid('card'), kind, name: def.name, type: def.type, suit, number, red: suit === 'heart' || suit === 'diamond' };
+}
 import { REQ, SUIT_NAME, isBlack, CARD_TYPE } from './constants.js';
 
 function findOnPlayer(player, ref) {
@@ -251,7 +257,7 @@ export const HS_SKILLS = {
       const slot = target.equips.weapon ? 'weapon' : (target.equips.armor ? 'armor' : null);
       if (slot) { const eq = target.equips[slot]; target.equips[slot] = null; engine.discard.push(eq); engine.log(`${player.name}【邪火】横置 ${target.name} 的【${eq.name}】。`, 'play'); }
       if (!target.judge.some((j) => j.kind === 'guldanhand')) {
-        target.judge.push(virtualCard('guldanhand', []));
+        target.judge.push(makeRealCard('guldanhand')); // 用实体牌，避免虚拟牌(空sourceCards)在重洗后被无限复制
         engine.log(`${target.name} 的判定区置入【古尔丹之手】。`, 'play');
       }
       engine.changed();
@@ -831,12 +837,12 @@ export const HS_SKILLS = {
   // ===== 克尔苏加德（天灾）=====
   hanshuang: {
     name: '寒霜', active: true, perTurn: true,
-    desc: '出牌阶段令一名角色下个回合手牌上限-4（每回合一次）。',
+    desc: '出牌阶段令一名角色下个回合手牌上限-3（每回合一次）。',
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       player.flags.hanshuangUsed = true;
-      t.frostHandLimit = (t.frostHandLimit || 0) + 4;
-      engine.log(`${player.name} 对 ${t.name} 发动【寒霜】，其下回合手牌上限-4。`, 'play');
+      t.frostHandLimit = (t.frostHandLimit || 0) + 3;
+      engine.log(`${player.name} 对 ${t.name} 发动【寒霜】，其下回合手牌上限-3。`, 'play');
     },
   },
 
@@ -1007,7 +1013,7 @@ export const HS_SKILLS = {
   // ===== 奈法利安（中立）=====
   dihou: {
     name: '低吼', active: true, perTurn: true,
-    desc: '出牌阶段指定一名角色，直到你的下个回合开始前，其失去并置入弃牌堆的牌都改为由你获得（每回合一次）。',
+    desc: '出牌阶段指定一名角色，直到你的下个回合开始前，其所有置入弃牌堆的牌（使用、打出、被弃等）都改为由你获得（每回合一次）。',
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t || t === player) return;
       player.flags.dihouUsed = true;

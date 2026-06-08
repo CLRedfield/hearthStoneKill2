@@ -259,15 +259,23 @@ export class GameEngine {
     this.changed();
   }
 
-  // 将一组牌弃入弃牌堆
-  toDiscard(cards) {
-    const fxCards = [];
+  // 将一组牌弃入弃牌堆。fromPlayer（或当前结算者 _actingUser）若被【低吼】指定，则改由低吼者获得
+  toDiscard(cards, fromPlayer = null) {
+    const reals = [];
     cards.forEach((c) => {
-      // 虚拟牌：把来源实体牌弃掉
-      if (c.virtual && c.sourceCards) { this.discard.push(...c.sourceCards); fxCards.push(...c.sourceCards); }
-      else { this.discard.push(c); fxCards.push(c); }
+      if (c.virtual && c.sourceCards) reals.push(...c.sourceCards);
+      else reals.push(c);
     });
-    this.fx('discard', { cards: fxCards.map(fxCard) });
+    const actor = fromPlayer || this._actingUser;
+    const hunter = actor && this.players.find((p) => p.alive && p !== actor && p.skillState?.dihouTarget === actor.id);
+    if (hunter && reals.length) {
+      hunter.hand.push(...reals);
+      this.log(`${hunter.name} 发动【低吼】，获得 ${actor.name} 置入弃牌堆的 ${reals.length} 张牌。`, 'good');
+      this.changed();
+      return;
+    }
+    this.discard.push(...reals);
+    this.fx('discard', { cards: reals.map(fxCard) });
     this.changed();
   }
 
@@ -886,12 +894,14 @@ export class GameEngine {
       if (wt > 0) await this.recover(target, wt, source);
     }
     if (this.over) return;
-    if (target.hp <= 0) {
+    // 注意：受伤后技能链中目标可能已死亡，需再校验 alive，避免对已死角色重复进入濒死
+    if (target.alive && target.hp <= 0) {
       await this._dying(target, source);
     }
   }
 
   async _dying(player, source) {
+    if (!player.alive || player.hp > 0) return;
     this.log(`${player.name} 濒死！（体力 ${player.hp}）`, 'bad');
     this.changed();
     await this.pause(300);
@@ -911,7 +921,7 @@ export class GameEngine {
         // 使用桃/酒救援
         const sources = card.virtual ? card.sourceCards : [card];
         sources.forEach((c) => removeFrom(responder.hand, c));
-        this.toDiscard([card]);
+        this.toDiscard([card], responder);
         this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
         player.hp += 1;
         this.changed();
@@ -928,7 +938,11 @@ export class GameEngine {
     const alive = this.alivePlayers;
     const start = alive.indexOf(player);
     const order = [];
-    for (let k = 0; k < alive.length; k++) order.push(alive[(start + k) % alive.length]);
+    if (start >= 0) {
+      for (let k = 0; k < alive.length; k++) order.push(alive[(start + k) % alive.length]);
+    } else {
+      order.push(...alive); // 起点不在存活列表（如已死）：按现存顺序，避免负索引取到 undefined
+    }
     // 濒死者本人也可救，加在最前
     if (!order.includes(player)) order.unshift(player);
     return order;
