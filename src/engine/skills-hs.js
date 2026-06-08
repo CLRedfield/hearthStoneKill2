@@ -381,27 +381,27 @@ export const HS_SKILLS = {
   // ===== 娜塔莉塞林（联盟）=====
   xuwu: {
     name: '虚无', active: true, perTurn: true,
-    desc: '出牌阶段弃一张牌并指定一名角色，使其弃置所有与你弃牌花色相同的牌（每回合一次）。',
+    desc: '出牌阶段弃一张牌并指定一名角色，使其弃置所有与你弃牌颜色相同的牌（每回合一次）。',
     async action(engine, { player, move }) {
       const card = findOnPlayer(player, move.cardId); const t = engine.playerById(move.targetId);
       if (!card || !t) return;
       player.flags.xuwuUsed = true;
-      const suit = card.suit;
+      const red = !isBlack(card.suit); // 颜色：红 / 黑
       engine.discardCards(player, [card]);
-      engine.log(`${player.name} 发动【虚无】（${SUIT_NAME[suit]}）。`, 'play');
-      const drop = anyCards(t).filter((c) => c.suit === suit);
+      engine.log(`${player.name} 发动【虚无】（${red ? '红色' : '黑色'}）。`, 'play');
+      const drop = anyCards(t).filter((c) => (!isBlack(c.suit)) === red);
       if (drop.length) engine.discardCards(t, drop);
     },
   },
   xishou: {
-    name: '吸收', desc: '锁定技：当你消灭一名角色，你获得其所有牌，并将体力上限变为其上限值且回复所有体力。',
+    name: '吸收', desc: '锁定技：当你消灭一名角色，你获得其所有牌，并使你的体力上限增加其上限值且回复所有体力。',
     triggers: {
       async kill(engine, { killer, victim }) {
         const cards = [...victim.hand, ...Object.values(victim.equips).filter(Boolean), ...victim.judge];
         victim.hand = []; victim.equips = { weapon: null, armor: null, plus: null, minus: null }; victim.judge = [];
         killer.hand.push(...cards);
-        killer.maxHp = Math.max(killer.maxHp, victim.maxHp); killer.hp = killer.maxHp;
-        engine.log(`${killer.name} 发动【吸收】，吞噬 ${victim.name} 的一切！`, 'win');
+        killer.maxHp = killer.maxHp + victim.maxHp; killer.hp = killer.maxHp; // 体力上限增加“被消灭者上限”，并回满
+        engine.log(`${killer.name} 发动【吸收】，吞噬 ${victim.name}：体力上限+${victim.maxHp} 并回满！`, 'win');
         engine.changed();
       },
     },
