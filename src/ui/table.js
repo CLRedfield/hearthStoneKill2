@@ -33,6 +33,8 @@ export class GameUI {
     this.discardSel = new Set();
     this.zhangba = null; // 丈八蛇矛：{ context:'play'|'respond', sel:[ids] }
     this.fx = null;
+    // 移动端默认收起战报，减少左上角遮挡（仍可点开）
+    this.logCollapsed = typeof window !== 'undefined' && window.innerWidth <= 640;
   }
 
   get me() { return this.engine.playerById(this.viewerId); }
