@@ -9,7 +9,8 @@ function ensure() {
     tipEl = el('div', { class: 'rich-tip' });
     document.body.appendChild(tipEl);
     document.addEventListener('click', () => hideTip());
-    window.addEventListener('scroll', () => hideTip(), true);
+    // 仅在“真正的窗口滚动”时收起；不要用 capture，否则每次重渲染里日志/手牌的程序化内部滚动都会误触发收起
+    window.addEventListener('scroll', () => hideTip());
   }
   return tipEl;
 }
