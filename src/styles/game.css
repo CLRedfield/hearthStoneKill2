@@ -1,5 +1,7 @@
 /* ====================== 牌桌 ====================== */
 .game-root, .table-wrap { position: fixed; inset: 0; }
+/* 用动态视口高度，避免底部操作区被移动端浏览器工具栏/手势条遮挡（dvh 随浏览器UI变化而收缩） */
+@supports (height: 100dvh) { .game-root, .table-wrap { height: 100dvh; bottom: auto; } }
 .table-wrap {
   display: flex; flex-direction: column;
   background:
@@ -127,7 +129,7 @@
 .self-panel .p-name { font-size: 16px; }
 
 /* 操作栏 */
-.action-bar { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 4px; border-top: 1px solid rgba(201,162,39,.2); background: linear-gradient(0deg, rgba(0,0,0,.25), transparent); }
+.action-bar { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0 calc(4px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid rgba(201,162,39,.2); background: linear-gradient(0deg, rgba(0,0,0,.25), transparent); }
 .ab-banner { min-height: 22px; }
 .ab-title { color: var(--gold-bright); font-size: 15px; letter-spacing: 1px; }
 .ab-wait { color: var(--text-dim); font-size: 14px; }
@@ -302,7 +304,11 @@
   .tb-menu-btn { width: 32px; height: 28px; font-size: 14px; }
   .tb-mode { letter-spacing: 1px; }
   .tb-phase { gap: 6px; font-size: 12px; }
-  .opp-grid { gap: 6px; padding: 8px 2px 4px; }
+  /* 对手区占据剩余空间并可滚动，确保自己面板+手牌+操作按钮始终固定在底部可见可点 */
+  .opp-grid { gap: 6px; padding: 8px 2px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: flex-start; }
+  .table-center { flex: 0 0 auto; min-height: 0; padding: 2px 0; }
+  .self-panel { flex: 0 0 auto; }
+  .action-bar { flex: 0 0 auto; }
   .player { width: 112px; padding: 6px 7px; border-radius: 9px; gap: 4px; }
   .player.is-turn::after { font-size: 9px; padding: 1px 5px; top: -8px; }
   .p-portrait { width: 28px; height: 28px; top: 6px; right: 6px; }
