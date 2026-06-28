@@ -214,7 +214,7 @@ export class GameUI {
       // 对自己显示具体奥秘名，对他人只显示数量
       if (p.secrets) {
         p.secrets.forEach((s) => {
-          const sc = el('span', { class: 'token-chip secret-chip', text: `🔒 ${s.name}` });
+          const sc = el('span', { class: 'token-chip secret-chip', text: s.guhuoBy ? `🗡 蛊惑·${s.name}` : `🔒 ${s.name}` });
           attachTip(sc, { title: s.name, sub: '奥秘（仅你可见）', desc: CARD_DEFS[s.kind]?.desc || '', accent: '#b186ff' });
           tokens.appendChild(sc);
         });
@@ -599,7 +599,7 @@ export class GameUI {
       const holder = this.engine.playerById(this.jiedaoHolder);
       return this.engine.alivePlayers.filter((t) => t !== holder && this.engine.inAttackRange(holder, t));
     }
-    if (o.kind === 'sha') return shaTargets(this.engine, me);
+    if (o.kind === 'sha') return shaTargets(this.engine, me, o.card);
     if (o.bottledOther) return bottledTargets(this.engine, me); // 瓶装闪电·弃1牌指定他人
     return validTargets(this.engine, me, o.card);
   }
@@ -657,7 +657,7 @@ export class GameUI {
     const engine = this.engine;
     try {
       if (skill === 'kurou') { this._resolve({ type: 'skill', skill }); return; }
-      if (skill === 'mingyun' || skill === 'diyu' || skill === 'yuanyuhuo' || skill === 'anyingjian') { this._resolve({ type: 'skill', skill }); return; }
+      if (skill === 'mingyun' || skill === 'diyu' || skill === 'yuanyuhuo') { this._resolve({ type: 'skill', skill }); return; }
       if (skill === 'monengshandian') {
         const others = engine.alivePlayers.filter((p) => p.id !== this.viewerId);
         const first = await this._pickPlayer('魔能闪电：选择第一名角色', others);
@@ -827,17 +827,43 @@ export class GameUI {
         if (picked.length) this._resolve({ type: 'skill', skill, targetIds: picked });
         return;
       }
+      // 冰封：选至多3名角色
+      if (skill === 'bingfeng') {
+        const picked = [];
+        const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId);
+        for (let i = 0; i < 3; i++) {
+          const remain = all.filter((p) => !picked.includes(p.id));
+          if (!remain.length) break;
+          const t = await this._pickPlayer(`冰封：选择第${i + 1}名角色${i > 0 ? '（取消则结束选择）' : ''}`, remain);
+          if (!t) { if (i === 0) return; break; }
+          picked.push(t);
+        }
+        if (picked.length) this._resolve({ type: 'skill', skill, targetIds: picked });
+        return;
+      }
+      // 暗影箭雨：明置至多3名角色（不选则由技能自动挑选手牌最多者）
+      if (skill === 'anyingjian') {
+        const picked = [];
+        const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId && p.hand.length);
+        for (let i = 0; i < 3; i++) {
+          const remain = all.filter((p) => !picked.includes(p.id));
+          if (!remain.length) break;
+          const t = await this._pickPlayer(`暗影箭雨：选择第${i + 1}名要明置手牌的角色（取消则结束）`, remain);
+          if (!t) break;
+          picked.push(t);
+        }
+        this._resolve({ type: 'skill', skill, targetIds: picked });
+        return;
+      }
       // 利箭：选目标 + 弃任意张手牌
       if (skill === 'lijian2') {
-        const tgt = await this._pickPlayer('利箭：选择目标（其弃1张“标”）', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
+        const tgt = await this._pickPlayer('利箭：选择目标（其弃1张“标”，随后你按“标”点数的倍数弃牌）', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;
-        const cards = await this._pickCards('利箭：弃置任意张手牌（n张→其受n点 或 你摸n+3）', me.hand.filter((c) => !c.frozen), 1, me.hand.filter((c) => !c.frozen).length);
-        if (!cards) return;
-        this._resolve({ type: 'skill', skill, targetId: tgt, cards });
+        this._resolve({ type: 'skill', skill, targetId: tgt }); // 弃牌凑“标”倍数在技能内交互
         return;
       }
       // 单目标主动技
-      if (['bingfeng', 'xuerou', 'liexin', 'xuanzhuan', 'hanshuang', 'dihou', 'huoyan', 'duwu'].includes(skill)) {
+      if (['xuerou', 'liexin', 'xuanzhuan', 'hanshuang', 'dihou', 'huoyan', 'duwu'].includes(skill)) {
         const titleMap = {
           bingfeng: '冰封：选择要冻结手牌的角色',
           xuerou: '血肉成灰：选择目标（其下回合少摸1张）',

@@ -78,6 +78,7 @@ export class AIAgent {
     if (req.title?.includes('雌雄')) return { value: pickByLabel(options, ['draw', '摸']) };
     if (req.title?.includes('寒冰')) return { value: options.find((o) => o.value === 'no')?.value || options[0].value };
     if (req.title?.includes('麒麟')) return { value: options.find((o) => o.value !== 'no')?.value || options[0].value };
+    if (req.title?.includes('贯石斧')) return { value: player.hand.length >= 4 ? 'yes' : 'no' };
     if (req.title?.includes('青龙')) {
       const opt = shaOptions(engine, player)[0];
       if (opt) return { card: opt.card };
@@ -208,7 +209,7 @@ export class AIAgent {
         if (o.kind === 'jiedao' || o.kind === 'hengchong') continue; // 借刀/横冲需两段目标，随机时跳过
         if (o.bottledOther) continue; // 瓶装闪电·指定他人由强 AI 处理，随机时只走自己分支
         if (o.needTarget) {
-          const tgts = o.kind === 'sha' ? shaTargets(engine, player) : validTargets(engine, player, o.card);
+          const tgts = o.kind === 'sha' ? shaTargets(engine, player, o.card) : validTargets(engine, player, o.card);
           if (tgts.length) moves.push({ type: 'play', card: o.card, targets: [pickRandom(tgts)] });
         } else {
           let targets = [];
@@ -362,8 +363,8 @@ export class AIAgent {
     }
     // 冰封（洛克霍拉）：冻结手牌多的敌人
     if (acts.some((a) => a.skill === 'bingfeng') && hand.length >= 2 && enemies.length) {
-      const tgt = [...enemies].sort((a, b) => b.hand.length - a.hand.length)[0];
-      if (tgt) return { type: 'skill', skill: 'bingfeng', targetId: tgt.id };
+      const tgts = [...enemies].sort((a, b) => b.hand.length - a.hand.length).slice(0, 3);
+      if (tgts.length) return { type: 'skill', skill: 'bingfeng', targetIds: tgts.map((t) => t.id) };
     }
     // 虚无（娜塔莉塞林）：弃低值牌，逼敌人弃同花色
     if (acts.some((a) => a.skill === 'xuwu') && hand.length && enemies.length) {
@@ -431,11 +432,10 @@ export class AIAgent {
       const t = [...enemies].sort((a, b) => b.hand.length - a.hand.length)[0];
       if (t && Math.random() < 0.7) return { type: 'skill', skill: 'dihou', targetId: t.id };
     }
-    // 奥蕾莉亚·利箭：弃1~2张冗余牌轰残血敌人
-    if (acts.some((a) => a.skill === 'lijian2') && enemies.length) {
+    // 奥蕾莉亚·利箭：对残血敌人发动（弃牌凑“标”点数倍数由技能内部处理）
+    if (acts.some((a) => a.skill === 'lijian2') && enemies.length && hand.filter((c) => !c.frozen).length) {
       const t = [...enemies].sort((a, b) => a.hp - b.hp)[0];
-      const junk = hand.filter((c) => !c.frozen).sort((a, b) => cardValue(a) - cardValue(b)).slice(0, Math.min(2, Math.max(1, t.hp)));
-      if (t && junk.length) return { type: 'skill', skill: 'lijian2', targetId: t.id, cards: junk.map((c) => c.id) };
+      if (t) return { type: 'skill', skill: 'lijian2', targetId: t.id };
     }
     // 泽瑞拉·信徒：武将牌上攒了≥3张黑色牌时收回（限定，之后失去技能）
     if (acts.some((a) => a.skill === 'xintu') && (player.pile || []).filter((c) => c.suit === 'spade' || c.suit === 'club').length >= 3) {
@@ -553,9 +553,16 @@ export class AIAgent {
       const shaTgts = shaTargets(engine, player).filter((t) => enemies.includes(t));
       const opts = shaOptions(engine, player);
       if (opts.length && shaTgts.length) {
-        const tgt = [...shaTgts].sort((a, b) => a.hp - b.hp)[0];
+        const shaCard = opts[0].card;
+        // 方天画戟：若这是最后一张手牌的【杀】，可指定至多3名敌人
+        const srcCount = shaCard.virtual ? (shaCard.sourceCards?.length || 1) : 1;
+        const isLast = player.hand.length - srcCount <= 0;
+        if (player.equips[EQUIP_SLOT.WEAPON]?.kind === 'fangtian' && isLast && shaTgts.length >= 2) {
+          return { type: 'play', card: shaCard, targets: [...shaTgts].sort((a, b) => a.hp - b.hp).slice(0, 3) };
+        }
         // 关羽/赵云 用转化杀也可；优先真杀
-        return { type: 'play', card: opts[0].card, targets: [tgt] };
+        const tgt = [...shaTgts].sort((a, b) => a.hp - b.hp)[0];
+        return { type: 'play', card: shaCard, targets: [tgt] };
       }
     }
 

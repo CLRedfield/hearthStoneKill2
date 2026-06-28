@@ -251,8 +251,8 @@ export class GameEngine {
         cthun.skillState.shardCount = (cthun.skillState.shardCount || 0) + 1;
         // 组合（觉醒）：抽到4张破碎后升级低语
         if (cthun.skillState.shardCount >= 4 && hasSkill(cthun, 'zuhe') && !cthun.skillState.zuheAwake) {
-          cthun.skillState.zuheAwake = true;
-          this.log(`✨ ${cthun.name} 觉醒【组合】，【低语】强化！`, 'win');
+          cthun.skillState.zuheAwake = true; cthun.skillState.zuhePending = true;
+          this.log(`✨ ${cthun.name} 觉醒【组合】，【低语】强化，并将追加一次【低语】！`, 'win');
         }
       }
     }
@@ -275,6 +275,7 @@ export class GameEngine {
       return;
     }
     this.discard.push(...reals);
+    this._collectSink(reals, actor, false); // 恩佐斯·精华：进入弃牌堆的指定花色牌收为“沉”
     this.fx('discard', { cards: reals.map(fxCard) });
     this.changed();
   }
@@ -340,6 +341,7 @@ export class GameEngine {
       const toPile = [];
       for (const c of cards) { if (!this._routeLeavePlay(c, player)) toPile.push(c); }
       this.discard.push(...toPile);
+      this._collectSink(toPile, player, true); // 恩佐斯：精华花色 / 沉落（弃掉的基本/锦囊牌）收为“沉”
       // 暗影步：记录回合归属者本回合主动失去/弃置的牌
       if (player === this.turnOwner) this.turnRecallable.push(...toPile);
       this.log(`${player.name} 失去 ${cards.length} 张牌。`);
@@ -436,6 +438,8 @@ export class GameEngine {
       await this._phasePlay(player);
       if (this.over || !player.alive) return;
     }
+    // 冻结不再拖到下回合：弃牌阶段前解冻本回合内被冻的手牌
+    await this._thawPlayer(player);
     if (!player.flags.skipDiscard) await this._phaseDiscard(player);
     if (this.over || !player.alive) return;
     await this._phaseEnd(player);
@@ -456,12 +460,9 @@ export class GameEngine {
     if (frozen) { this.log(`${target.name} 被冻结 ${frozen} 张手牌。`, 'bad'); this.changed(); }
   }
 
-  async _phaseStart(player) {
-    this._setPhase(PHASE.START);
-    player.cloudReady = false; // 淡云圆盾免疫到自己回合开始结束
-    player.offTurnDamage = 0;      // 复活之甲：回合外受伤计数（你的回合开始重置）
-    player.bombDodgeUsed = false;  // 防爆护盾：回合外免费闪避（你的回合开始重置）
-    player.iceHeartImmune = false; // 凝冰护盾：你的下回合开始时失去对红桃【杀】的免疫
+  // 解冻一名角色的冻结手牌（含奥数抉择）。回合开始、本回合弃牌阶段前各调用一次：
+  // 回合开始解冻“被对手冻的牌”；弃牌前解冻“本回合内新被冻的牌”——冻结不再拖到下回合。
+  async _thawPlayer(player) {
     // 奥数（晨拥）：被其冻结的牌解冻时，拥有者抉择 ①晨拥摸2 ②弃该牌给晨拥1张
     for (const c of player.hand.filter((x) => x.frozen && x.frozenBy)) {
       const freezer = this.playerById(c.frozenBy); c.frozenBy = null;
@@ -473,8 +474,34 @@ export class GameEngine {
       if (pick === 'draw2') { this.drawCards(freezer, 2); this.log(`${freezer.name} 发动【奥数】摸两张牌。`, 'good'); }
       else { removeFrom(player.hand, c); freezer.hand.push(c); this.log(`${player.name} 弃置该牌交给 ${freezer.name}（奥数）。`); this.changed(); }
     }
-    // 解冻自己手牌（冻结持续到自己下回合开始）
-    player.hand.forEach((c) => { c.frozen = false; });
+    let thawed = 0;
+    player.hand.forEach((c) => { if (c.frozen) { c.frozen = false; thawed++; } });
+    if (thawed) this.changed();
+  }
+
+  // 恩佐斯：精华（任何人弃入弃牌堆的指定花色牌）/ 沉落（恩佐斯弃掉的基本/锦囊牌）收为“沉”（移出弃牌堆，置于其武将牌 pile）
+  _collectSink(cards, fromPlayer, allowChenluo) {
+    let any = false;
+    for (const c of [...cards]) {
+      if (!this.discard.includes(c)) continue;
+      let collector = this.players.find((p) => p.alive && p.skillState && p.skillState.jinghuaSuit && c.suit === p.skillState.jinghuaSuit) || null;
+      if (!collector && allowChenluo && fromPlayer && hasSkill(fromPlayer, 'chenluo')) {
+        const ty = CARD_DEFS[c.kind]?.type;
+        if (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) collector = fromPlayer;
+      }
+      if (collector) { removeFrom(this.discard, c); collector.pile.push(c); any = true; }
+    }
+    if (any) this.changed();
+  }
+
+  async _phaseStart(player) {
+    this._setPhase(PHASE.START);
+    player.cloudReady = false; // 淡云圆盾免疫到自己回合开始结束
+    player.offTurnDamage = 0;      // 复活之甲：回合外受伤计数（你的回合开始重置）
+    player.bombDodgeUsed = false;  // 防爆护盾：回合外免费闪避（你的回合开始重置）
+    player.iceHeartImmune = false; // 凝冰护盾：你的下回合开始时失去对红桃【杀】的免疫
+    // 解冻“被对手冻的牌”（本回合弃牌前会再解冻一次本回合内新被冻的牌，见 _thawPlayer）
+    await this._thawPlayer(player);
     // 艾露尼斯：准备阶段额外摸牌
     const w = player.equips[EQUIP_SLOT.WEAPON];
     if (w && CARD_DEFS[w.kind]?.startDraw) this.drawCards(player, CARD_DEFS[w.kind].startDraw);
@@ -595,7 +622,7 @@ export class GameEngine {
         else if (sh === 'mouth') { this.drawCards(cthun, 3); }
         else if (sh === 'eye') { for (let i = 0; i < 3; i++) cthun.hand.push({ id: uid('card'), kind: 'chongfeng', name: '冲锋', type: CARD_TYPE.BASIC, suit: 'spade', number: 1, red: false, noDist: true }); }
         cthun.skillState.shardCount = (cthun.skillState.shardCount || 0) + 1;
-        if (cthun.skillState.shardCount >= 4 && hasSkill(cthun, 'zuhe') && !cthun.skillState.zuheAwake) { cthun.skillState.zuheAwake = true; this.log(`✨ ${cthun.name} 觉醒【组合】！`, 'win'); }
+        if (cthun.skillState.shardCount >= 4 && hasSkill(cthun, 'zuhe') && !cthun.skillState.zuheAwake) { cthun.skillState.zuheAwake = true; cthun.skillState.zuhePending = true; this.log(`✨ ${cthun.name} 觉醒【组合】，追加一次【低语】！`, 'win'); }
       }
       this.changed();
     }
@@ -675,6 +702,7 @@ export class GameEngine {
     const replayable = (cdef.type === CARD_TYPE.BASIC || cdef.type === CARD_TYPE.TRICK) && cardAs(card) !== 'jiu' && card.kind !== 'wuxie';
     const doRishi = player.flags.rishiPending && replayable;
     if (doRishi) player.flags.rishiPending = false;
+    if (player.skillState) player.skillState._dmgThisCard = false; // 神圣之触：本次使用前清空“已造成伤害”标记
     await resolveCard(this, { user: player, card, targets, options: move.options || {} });
     if (doRishi && player.alive && !this.over) {
       this.log(`${player.name}【日蚀】令【${card.name}】再使用一次！`, 'good');
@@ -744,7 +772,15 @@ export class GameEngine {
   }
 
   async recover(player, amount = 1, source = null) {
-    if (this.healDisabled) { this.log(`${player.name} 无法回复体力（苏醒）。`, 'bad'); return; }
+    // 恩佐斯·苏醒：本轮所有治疗改为对相应角色造成等量强制伤害
+    if (this.healToHarm) {
+      if (this._inHealToHarm) return; // 防止伤害链中触发的二次治疗无限递归
+      this._inHealToHarm = true;
+      try { this.log(`${player.name} 的治疗被【苏醒】转化为 ${amount} 点伤害！`, 'bad'); await this.dealDamage({ source: this.healToHarmBy || null, target: player, amount }); }
+      finally { this._inHealToHarm = false; }
+      return;
+    }
+    if (this.healDisabled) { this.log(`${player.name} 无法回复体力。`, 'bad'); return; }
     if (player.flags?.noHeal) { this.log(`${player.name} 无法回复体力（腐蚀术）。`, 'bad'); return; }
     if (player.hp >= player.maxHp) return;
     const before = player.hp;
@@ -767,6 +803,8 @@ export class GameEngine {
   // 造成伤害的核心流程
   async dealDamage({ source, target, amount = 1, nature = 'normal', card = null }) {
     if (!target.alive || amount <= 0) return;
+    // 冰火（晨拥）：你对有装备的角色造成的伤害+1（对任意伤害生效）
+    if (source && source !== target && hasSkill(source, 'binhuo') && Object.values(target.equips).some(Boolean)) amount += 1;
     // 炎躯（拉格纳罗斯）：免疫红色牌造成的伤害
     if (card && card.red && hasSkill(target, 'yanqu')) {
       this.log(`${target.name} 发动【炎躯】，免疫红色牌伤害。`, 'good');
@@ -861,6 +899,7 @@ export class GameEngine {
       'damage'
     );
     target.hp -= amount;
+    if (source && source.skillState) source.skillState._dmgThisCard = true; // 神圣之触：标记本次使用的牌已造成伤害
     // 复活之甲：累计回合外受到的伤害（用于“一轮最多3点”上限）
     if (this.turnOwner !== target && armorsOf(target).some((a) => (CARD_DEFS[a.kind] || {}).offTurnCap != null)) {
       target.offTurnDamage = (target.offTurnDamage || 0) + amount;
@@ -957,11 +996,23 @@ export class GameEngine {
       && (this.turnOwner === player || this.turnOwner === p) && (p === player || this.isAlly(p, player))
       && !p.skillState.chongshengUsed);
     if (reviver) {
-      reviver.skillState.chongshengUsed = true;
-      player.hp = 1;
-      this.log(`✨ ${reviver.name} 发动【重生】，使 ${player.name} 以1点体力复活并摸四张牌！`, 'win');
-      this.drawCards(player, 4); this.changed();
-      return;
+      const rAgent = this.agentOf(reviver);
+      let go = true; // “你可以使其复活”：人类询问，AI 默认发动（reviver 条件已限定仅救自己或友方）
+      if (rAgent && rAgent.kind !== 'ai') {
+        const r = await this.ask(reviver, {
+          type: REQ.CHOOSE_OPTION,
+          title: `重生：是否使 ${player === reviver ? '你自己' : player.name} 以1点体力复活并摸四张牌？`,
+          options: [{ value: 'yes', label: '发动' }, { value: 'no', label: '不发动' }],
+        });
+        go = r?.value !== 'no';
+      }
+      if (go) {
+        reviver.skillState.chongshengUsed = true;
+        player.hp = 1;
+        this.log(`✨ ${reviver.name} 发动【重生】，使 ${player.name} 以1点体力复活并摸四张牌！`, 'win');
+        this.drawCards(player, 4); this.changed();
+        return;
+      }
     }
     player.alive = false;
     this.log(`💀 ${player.name}（${player.general?.name}） 阵亡。身份：${this._identityText(player)}`, 'death');
@@ -973,9 +1024,10 @@ export class GameEngine {
     // 死亡技（亡语等）：在弃牌前由死者触发
     await triggerSkill(this, 'death', { player, source });
     // 弃置所有牌
-    const all = [...player.hand, ...Object.values(player.equips).filter(Boolean), ...player.judge, ...(player.secrets || []), ...(player.shieldCards || [])];
+    const all = [...player.hand, ...Object.values(player.equips).filter(Boolean), ...(player.equips2 ? Object.values(player.equips2).filter(Boolean) : []), ...player.judge, ...(player.secrets || []), ...(player.shieldCards || [])];
     player.hand = [];
     player.equips = { weapon: null, armor: null, plus: null, minus: null };
+    player.equips2 = { weapon: null, armor: null }; // 骨架（玛洛加尔）副装备栏也要清算，否则死亡时凭空消失
     player.judge = [];
     player.secrets = [];
     player.shieldCards = []; player.shields = 0;

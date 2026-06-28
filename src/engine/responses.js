@@ -78,7 +78,7 @@ export function cardPlayOptions(engine, p, card) {
       opts.push({ kind: card.kind, asName: card.name, card, needTarget: true });
     }
   } else if (isSha(card)) {
-    if (canUseSha(engine, p) && shaTargets(engine, p).length) opts.push({ kind: 'sha', asName: def.name, card, needTarget: true });
+    if (canUseSha(engine, p) && shaTargets(engine, p, card).length) opts.push({ kind: 'sha', asName: def.name, card, needTarget: true });
   } else if (isTao(card)) {
     if (def.healAlly) {
       // 联结治疗：使一名角色与你各回1，需选一名其他角色（你或他受伤即可用）
