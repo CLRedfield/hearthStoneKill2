@@ -47,11 +47,18 @@ async function autoReplay(engine, player, info) {
   await resolveCard(engine, { user: player, card: v, targets, options: {} });
 }
 const cardInfo = (c) => ({ kind: c.kind, suit: c.suit, number: c.number, red: c.red });
+// 神圣之触：判断一张牌是否“可造成伤害”
+const DAMAGE_BEHAVES = ['juedou', 'hsjuedou', 'nanman', 'wanjian', 'daoshan', 'oddhp', 'ksenmask', 'hengchong', 'fengkuang'];
+function isDamageCard(card) {
+  if (cardAs(card) === 'sha') return true;
+  const beh = CARD_DEFS[card.kind]?.behaves || card.kind;
+  return DAMAGE_BEHAVES.includes(beh);
+}
 
 // 立即使用一张“实体牌”（暗影箭雨夺取后使用）：自动选目标，由 user 结算
 // 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
-async function useRealCard(engine, user, card, interactive = false) {
-  if (!card || !user.alive) return;
+async function useRealCard(engine, user, card, interactive = false, allowDead = false) {
+  if (!card || (!user.alive && !allowDead)) return; // allowDead：亡语等让已死亡角色也能结算用牌
   const { resolveCard, validTargets, shaTargets } = await import('./effects.js');
   const def = CARD_DEFS[card.kind] || {};
   const role = cardAs(card);
@@ -74,7 +81,7 @@ async function useRealCard(engine, user, card, interactive = false) {
     const cands = prefer(shaTargets(engine, user), true);
     if (!cands.length) { engine.discard.push(card); return; }
     const t = await pick(cands); if (!t) { engine.discard.push(card); return; } targets = [t];
-  } else if (role === 'tao') { if (user.hp >= user.maxHp) { engine.discard.push(card); return; } }
+  } else if (role === 'tao') { if (user.hp >= user.maxHp || !user.alive) { engine.discard.push(card); return; } }
   else if (role === 'jiu') { /* self */ }
   else if (def.type === CARD_TYPE.EQUIP) { /* 装备给自己，targets 空 */ }
   else if (def.type === CARD_TYPE.DELAYED) {
@@ -137,8 +144,9 @@ export const HS_SKILLS = {
       if (!target) return;
       player.flags.kuangbaoUsed = true;
       engine.log(`${player.name} 发动【狂暴】，与 ${target.name} 各受1点伤害！`, 'play');
-      await engine.dealDamage({ source: player, target, amount: 1 });
-      if (player.alive) await engine.dealDamage({ source: player, target: player, amount: 1 });
+      // 同时各受1点：先结算自己（不会因目标死亡的连锁反应而被豁免），再结算目标
+      await engine.dealDamage({ source: player, target: player, amount: 1 });
+      if (!engine.over && target.alive) await engine.dealDamage({ source: player, target, amount: 1 });
     },
   },
 
@@ -213,13 +221,15 @@ export const HS_SKILLS = {
     },
   },
 
-  // 重组（锁定技）：死亡时若已有10基本+10锦囊被使用，则满血复活并摸4
+  // 重组（锁定技）：死亡时若已有10基本+10锦囊被使用，则满血复活并摸4（整局一次）
   chongzu: {
-    name: '重组', desc: '当你死亡，若已有10张基本牌与10张锦囊牌被使用，则满体力复活并摸四张牌。',
+    name: '重组', desc: '锁定技：当你死亡，若已有10张基本牌与10张锦囊牌被使用，则满体力复活并摸四张牌（整局一次）。',
     triggers: {
       async beforeDeath(engine, { player }) {
+        if (player.skillState.chongzuUsed) return false; // 整局一次，避免达标后反复复活
         if ((engine.usedBasic || 0) >= 10 && (engine.usedTrick || 0) >= 10) {
-          player.hp = player.maxHp; engine.usedBasic = 0; engine.usedTrick = 0;
+          player.skillState.chongzuUsed = true;
+          player.hp = player.maxHp;
           engine.log(`✨ ${player.name} 发动【重组】，满体力复活并摸四张牌！`, 'win');
           engine.drawCards(player, 4); engine.changed();
           return true;
@@ -336,13 +346,14 @@ export const HS_SKILLS = {
   // ===== 洛克霍拉（部落）=====
   bingfeng: {
     name: '冰封', active: true, perTurn: true,
-    desc: '出牌阶段指定一名角色，冻结其等同于你手牌数-1（至多3）张手牌（每回合一次）。',
+    desc: '出牌阶段指定至多三名角色，各冻结等同于你手牌数-1 的手牌（每回合一次）。',
     async action(engine, { player, move }) {
-      const t = engine.playerById(move.targetId); if (!t) return;
+      const ids = move.targetIds || (move.targetId ? [move.targetId] : []);
+      const targets = ids.map((id) => engine.playerById(id)).filter(Boolean).slice(0, 3);
+      if (!targets.length) return;
       player.flags.bingfengUsed = true;
-      const n = Math.min(3, Math.max(0, player.hand.length - 1));
-      engine.log(`${player.name} 对 ${t.name} 发动【冰封】。`, 'play');
-      engine.freezeHand(t, n);
+      const n = Math.max(0, player.hand.length - 1);
+      for (const t of targets) { engine.log(`${player.name} 对 ${t.name} 发动【冰封】，冻结 ${n} 张。`, 'play'); engine.freezeHand(t, n); }
     },
   },
   fusheng: {
@@ -355,25 +366,46 @@ export const HS_SKILLS = {
 
   // ===== 布鲁坎（部落）=====
   yuansu: {
-    name: '元素之力', desc: '锁定技：准备阶段判定：♥你与一名角色回2点；♣摸3张；♠对至多两名角色各造2点伤害；♦弃置至多三名角色各2张牌。',
+    name: '元素之力', desc: '锁定技：你回合开始时判定：♥你和一名角色各回复2点；♣摸3张；♠对至多两名角色各造成2点普通伤害；♦弃置至多三名角色各2张牌。',
     triggers: {
       async startPhase(engine, { player }) {
         engine.log(`${player.name} 发动【元素之力】，判定...`, 'good');
         const jr = await engine.doJudge(player, '元素之力');
         const others = engine.alivePlayers.filter((p) => p !== player);
+        const isAI = engine.agentOf(player)?.kind === 'ai';
+        const pickOne = async (cands, title, aiSort) => {
+          if (!cands.length) return null;
+          if (isAI) return [...cands].sort(aiSort)[0];
+          const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title, options: cands.map((c) => ({ value: c.id, label: c.name })) });
+          return engine.playerById(r?.value) || cands[0];
+        };
+        const pickMulti = async (cands, max, title, aiSort) => {
+          if (isAI) return [...cands].sort(aiSort).slice(0, max);
+          const picked = [];
+          while (picked.length < max) {
+            const avail = cands.filter((c) => !picked.includes(c));
+            if (!avail.length) break;
+            const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `${title}（已选${picked.length}/${max}）`, options: [...avail.map((c) => ({ value: c.id, label: c.name })), { value: 'done', label: '结束选择' }] });
+            if (!r || r.value === 'done') break;
+            const c = avail.find((x) => x.id === r.value); if (c) picked.push(c);
+          }
+          return picked;
+        };
+        const allyWeak = (a, b) => (engine.isAlly(player, b) ? 1 : 0) - (engine.isAlly(player, a) ? 1 : 0) || a.hp - b.hp;
+        const enemyWeak = (a, b) => (engine.isAlly(player, a) ? 1 : 0) - (engine.isAlly(player, b) ? 1 : 0) || a.hp - b.hp;
+        const enemyRich = (a, b) => (engine.isAlly(player, a) ? 1 : 0) - (engine.isAlly(player, b) ? 1 : 0) || b.hand.length - a.hand.length;
         if (jr.suit === 'heart') {
           await engine.recover(player, 2);
-          const ally = others.sort((a, b) => a.hp - b.hp)[0]; if (ally) await engine.recover(ally, 2);
+          const ally = await pickOne(others, '元素之力（♥）：选择一名角色与你一起回复2点', allyWeak);
+          if (ally) await engine.recover(ally, 2);
         } else if (jr.suit === 'club') {
           engine.drawCards(player, 3);
         } else if (jr.suit === 'spade') {
-          // 对至多两名（最虚弱的）敌方角色各造2点
-          const tgts = others.filter((p) => !engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp).slice(0, 2);
-          const list = tgts.length ? tgts : others.sort((a, b) => a.hp - b.hp).slice(0, 2);
+          const list = await pickMulti(others, 2, '元素之力（♠）：选择至多两名角色各受2点伤害', enemyWeak);
           for (const t of list) { if (!player.alive || engine.over) break; await engine.dealDamage({ source: player, target: t, amount: 2 }); }
         } else {
-          // 弃置至多三名角色各2张牌
-          const list = others.filter((p) => anyCards(p).length).slice(0, 3);
+          const cands = others.filter((p) => anyCards(p).length);
+          const list = await pickMulti(cands, 3, '元素之力（♦）：选择至多三名角色各弃2张牌', enemyRich);
           for (const t of list) {
             const drop = [];
             for (let i = 0; i < 2 && anyCards(t).filter((c) => !drop.includes(c)).length; i++) drop.push(rand(anyCards(t).filter((c) => !drop.includes(c))));
@@ -476,6 +508,12 @@ export const HS_SKILLS = {
         let sum = 0; const use = [];
         for (const c of sorted) { if (sum >= 24) break; use.push(c); sum += c.number; }
         if (sum < 24) return;
+        // “可弃”：人类询问是否觉醒，AI 默认觉醒（解除休眠对其有利）
+        const agent = engine.agentOf(player);
+        if (agent && agent.kind !== 'ai') {
+          const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `唤醒：弃 ${use.length} 张牌（点数和 ${sum}）解除【休眠】并对所有其他角色造成1点伤害？`, options: [{ value: 'yes', label: '觉醒' }, { value: 'no', label: '保持休眠' }] });
+          if (r?.value === 'no') return;
+        }
         player.skillState.awake = true; player.flags.skipPlay = false; player.flags.skipDiscard = false; player.sleepImmune = false;
         engine.discardCards(player, use);
         engine.log(`✨ ${player.name} 弃 ${use.length} 张牌觉醒【唤醒】，休眠解除！`, 'win');
@@ -683,7 +721,13 @@ export const HS_SKILLS = {
       engine.log(`${player.name} 发动限定技【群体暗影】！`, 'play');
       for (const t of engine.alivePlayers.filter((p) => p !== player)) {
         const pool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
-        if (pool.length >= 2) { engine.discardCards(t, pool.slice(0, 2)); }
+        if (pool.length >= 2) {
+          const agent = engine.agentOf(t);
+          let cs;
+          if (agent?.kind === 'ai') cs = pool.slice(0, 2);
+          else { const r = await engine.ask(t, { type: REQ.DISCARD_CARDS, count: 2, from: 'all', title: '群体暗影：弃置两张牌' }); cs = (r?.cards || []).map((x) => findOnPlayer(t, x)).filter(Boolean); if (cs.length < 2) cs = [...cs, ...pool.filter((c) => !cs.includes(c)).slice(0, 2 - cs.length)]; }
+          engine.discardCards(t, cs.slice(0, 2));
+        }
         else { player.blades = (player.blades || 0) + 1; engine.log(`${t.name} 无法弃牌，${player.name} 获得1枚“刃”。`); }
       }
       engine.changed();
@@ -691,17 +735,17 @@ export const HS_SKILLS = {
   },
   bhlinghun: {
     name: '捕获灵魂', active: true, limited: true,
-    desc: '限定技：减少1点体力上限并弃6枚“刃”；所有其他角色依次抉择：①受到2点强制伤害；②弃置 4+n 张牌（n 为此前选择①的人数）。',
+    desc: '限定技：减少1点体力上限并弃6枚“刃”；所有其他角色依次抉择：①受到2点强制伤害；②弃置 4+n 张牌（n 为此前选择②弃牌的人数）。',
     async action(engine, { player }) {
       if ((player.blades || 0) < 6) return;
       player.skillState.bhlinghunUsed = true;
       player.blades -= 6;
       player.maxHp = Math.max(1, player.maxHp - 1); if (player.hp > player.maxHp) player.hp = player.maxHp;
       engine.log(`${player.name} 发动限定技【捕获灵魂】！`, 'play'); engine.changed();
-      let nDmg = 0;
+      let nDiscard = 0; // n = 此前选择“弃牌”（②）的人数
       for (const t of engine.alivePlayers.filter((p) => p !== player)) {
         if (engine.over) break;
-        const need = 4 + nDmg;
+        const need = 4 + nDiscard;
         const pool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
         let choice = 'dmg';
         if (pool.length >= need) {
@@ -709,8 +753,14 @@ export const HS_SKILLS = {
           if (agent?.kind === 'ai') choice = (t.hp <= 2 || pool.length >= need + 2) ? 'discard' : 'dmg';
           else { const resp = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `捕获灵魂：①受2点强制伤害 / ②弃置${need}张牌`, options: [{ value: 'dmg', label: '受到2点强制伤害' }, { value: 'discard', label: `弃置${need}张牌` }] }); choice = resp?.value || 'dmg'; }
         } // 牌不够则只能受伤
-        if (choice === 'discard') { engine.discardCards(t, pool.slice(0, need)); }
-        else { nDmg++; await engine.dealDamage({ source: player, target: t, amount: 2 }); }
+        if (choice === 'discard') {
+          const agent = engine.agentOf(t);
+          let cs;
+          if (agent?.kind === 'ai') cs = pool.slice(0, need);
+          else { const r = await engine.ask(t, { type: REQ.DISCARD_CARDS, count: need, from: 'all', title: `捕获灵魂：弃置${need}张牌` }); cs = (r?.cards || []).map((x) => findOnPlayer(t, x)).filter(Boolean); if (cs.length < need) cs = [...cs, ...pool.filter((c) => !cs.includes(c)).slice(0, need - cs.length)]; }
+          engine.discardCards(t, cs.slice(0, need)); nDiscard++;
+        }
+        else { await engine.dealDamage({ source: player, target: t, amount: 2 }); }
       }
     },
   },
@@ -978,7 +1028,8 @@ export const HS_SKILLS = {
         const higher = p.hand.filter((c) => c.number > prev).sort((a, b) => a.number - b.number)[0];
         if (higher) { engine.discardCards(p, [higher]); prev = higher.number; }
         else {
-          const sorted = [...p.hand].sort((a, b) => a.number - b.number);
+          // 无法弃出更大点数：弃出手牌最大的一张并额外多弃一张，用弃出的较大牌延续链条
+          const sorted = [...p.hand].sort((a, b) => b.number - a.number);
           const drop = sorted.slice(0, 2);
           engine.discardCards(p, drop);
           engine.log(`${p.name} 无法弃出更大点数，额外多弃一张。`, 'bad');
@@ -1037,17 +1088,40 @@ export const HS_SKILLS = {
     },
   },
   yawu: {
-    name: '亡语', desc: '锁定技：你死亡时摸十二张牌，将其中一半交给一名其他角色。',
+    name: '亡语', desc: '锁定技：你死亡时摸十二张牌，可将其中一部分交给一名其他角色，然后强制使用完剩下的手牌再离开。',
     triggers: {
       async death(engine, { player }) {
         const drawn = engine.drawCards(player, 12);
+        if (!drawn.length) return;
+        const isAI = engine.agentOf(player)?.kind === 'ai';
         const others = engine.alivePlayers.filter((p) => p !== player);
-        if (others.length && drawn.length) {
-          const lucky = rand(others);
-          const give = drawn.slice(0, Math.ceil(drawn.length / 2));
-          give.forEach((c) => { removeFrom(player.hand, c); lucky.hand.push(c); });
-          engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good');
-          engine.changed();
+        // 1) 选择一部分（默认一半）交给一名其他角色
+        if (others.length && player.hand.length) {
+          let lucky = null;
+          if (isAI) lucky = others.filter((p) => engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp)[0] || null;
+          else {
+            const r = await engine.ask(player, {
+              type: REQ.CHOOSE_OPTION, title: '亡语：将一半手牌交给一名角色？（剩余的将被强制使用）',
+              options: [{ value: 'none', label: '不交给任何人' }, ...others.map((p) => ({ value: p.id, label: p.name }))],
+            });
+            lucky = (r?.value && r.value !== 'none') ? engine.playerById(r.value) : null;
+          }
+          if (lucky) {
+            // 给一半；【杀】优先留下用于强制攻击，其余优先交给该角色
+            const sorted = [...player.hand].sort((a, b) => (cardAs(a) === 'sha' ? 1 : 0) - (cardAs(b) === 'sha' ? 1 : 0));
+            const give = sorted.slice(0, Math.ceil(player.hand.length / 2));
+            give.forEach((c) => { removeFrom(player.hand, c); lucky.hand.push(c); });
+            engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good');
+            engine.changed();
+          }
+        }
+        // 2) 强制使用完剩下的手牌（已死亡也可结算，用不出效果的牌弃置）后再离开
+        const remaining = [...player.hand];
+        for (const c of remaining) {
+          if (engine.over) break;
+          if (!player.hand.includes(c)) continue;
+          removeFrom(player.hand, c);
+          await useRealCard(engine, player, c, !isAI, true);
         }
       },
     },
@@ -1077,7 +1151,7 @@ export const HS_SKILLS = {
   // ===== 莫德雷斯（天灾）=====
   huoyan: {
     name: '火眼', active: true,
-    desc: '锁定技：你使用和弃掉的【杀】都置于武将牌上；你的【杀】可当【闪避】使用。出牌阶段可弃掉武将牌上5张【杀】，对一名角色造成10点强制伤害。',
+    desc: '锁定技：你使用和弃掉的【杀】都置于武将牌上，且你的【杀】可当【闪避】使用；出牌阶段你可弃掉武将牌上的5张【杀】，对一名角色造成10点强制伤害。',
     triggers: {
       async usedSha(engine, { player, card }) {
         const reals = card.virtual ? (card.sourceCards || []) : [card];
@@ -1100,7 +1174,7 @@ export const HS_SKILLS = {
 
   // ===== 玛洛加尔（天灾）=====
   haigu: {
-    name: '骸骨重铸', desc: '锁定技：任意角色的回合结束时你回复所有体力；你的【桃】仅能在濒死时使用。',
+    name: '骸骨重铸', desc: '锁定技：任意角色的回合结束时你回复所有体力；你的【桃】仅能在濒死时使用，且当你回复到1点体力时跳过当前回合。',
     triggers: {
       async anyEndPhase(engine, { owner }) {
         if (owner.hp < owner.maxHp) { engine.log(`${owner.name} 发动【骸骨重铸】，回复所有体力。`, 'good'); await engine.recover(owner, owner.maxHp - owner.hp); }
@@ -1128,10 +1202,12 @@ export const HS_SKILLS = {
         player.skillState.zerilaActive = pick;
         engine.log(`${player.name} 本回合启用【${pick === 'shengchu' ? '神圣之触' : '虚空之刺'}】。`, 'good');
       },
-      async shaMissed(engine, { user }) {
-        if (engine.turnOwner !== user || user.skillState.zerilaActive !== 'shengchu') return;
-        engine.log(`${user.name} 发动【神圣之触】，回复1点体力。`, 'good');
-        await engine.recover(user, 1);
+      async usedCard(engine, { player, card }) {
+        if (engine.turnOwner !== player || player.skillState.zerilaActive !== 'shengchu') return;
+        if (!isDamageCard(card)) return;                 // 仅“可造成伤害的牌”
+        if (player.skillState._dmgThisCard) return;       // 这张牌已造成伤害 → 不回血
+        engine.log(`${player.name} 发动【神圣之触】，回复1点体力。`, 'good');
+        await engine.recover(player, 1);
       },
     },
   },
@@ -1233,22 +1309,49 @@ export const HS_SKILLS = {
   // ===== 奥蕾莉亚（联盟）=====
   lijian2: {
     name: '利箭', active: true, perTurn: true,
-    desc: '出牌阶段指定一名角色，其弃置一张牌（称“标”）；你可弃置任意张手牌（设为 n 张），该角色抉择：①受到 n 点强制伤害；②你摸 n+3 张牌（可被【箭语】重置）。',
+    desc: '出牌阶段指定一名角色，其弃置一张牌（称“标”，点数记为 m）；你弃置点数之和为 m 的倍数的若干张牌（共 n 张），该角色抉择：①受到 n 点强制伤害；②你摸 n+3 张牌（可被【箭语】重置）。',
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       player.flags.lijian2Used = true;
-      // 标：目标弃1张
       const tpool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
-      if (tpool.length) engine.discardCards(t, [rand(tpool)]);
-      // 你弃 n 张
-      const myCards = (move.cards || []).map((x) => findOnPlayer(player, x)).filter(Boolean);
-      const n = myCards.length;
-      if (n) engine.discardCards(player, myCards);
-      engine.log(`${player.name} 对 ${t.name} 发动【利箭】（n=${n}）。`, 'play');
-      if (n === 0) return;
+      if (!tpool.length) { engine.log(`${t.name} 没有牌，【利箭】无效。`, 'system'); return; }
+      // 标：目标弃1张，取其点数 m
+      const mark = rand(tpool);
+      engine.discardCards(t, [mark]);
+      const m = mark.number || 1;
+      engine.log(`${player.name}【利箭】：${t.name} 弃置“标”【${mark.name}】（点数 ${m}）。`, 'play');
+      // 你弃若干张，点数之和需为 m 的倍数
+      const chosen = [];
+      const sumOf = () => chosen.reduce((s, c) => s + (c.number || 0), 0);
+      const isAI = engine.agentOf(player)?.kind === 'ai';
+      if (isAI) {
+        const pool = player.hand.filter((c) => !c.frozen).sort((a, b) => (a.number || 0) - (b.number || 0));
+        for (const c of pool) { chosen.push(c); if (sumOf() % m === 0) break; }
+        if (sumOf() % m !== 0) chosen.length = 0; // 凑不成倍数则放弃
+      } else {
+        while (true) {
+          const avail = player.hand.filter((c) => !c.frozen && !chosen.includes(c));
+          if (!avail.length) break;
+          const ok = chosen.length > 0 && sumOf() % m === 0;
+          const r = await engine.ask(player, {
+            type: REQ.CHOOSE_OPTION,
+            title: `利箭：已选${chosen.length}张(点数和${sumOf()})，标=${m}。${ok ? '可结束或继续' : `需凑成 ${m} 的倍数`}`,
+            options: [...avail.map((c) => ({ value: c.id, label: `${c.name}(${c.number})`, card: c })), { value: 'done', label: ok ? '结束（确定）' : '放弃【利箭】' }],
+          });
+          if (!r || r.value === 'done') break;
+          const c = avail.find((x) => x.id === r.value);
+          if (c) chosen.push(c);
+        }
+        if (!chosen.length || sumOf() % m !== 0) { engine.log(`${player.name} 未凑成“标”的倍数，【利箭】无效。`, 'system'); return; }
+      }
+      const n = chosen.length;
+      if (!n) { engine.log(`${player.name} 未弃牌，【利箭】无效。`, 'system'); return; }
+      const total = sumOf();
+      engine.discardCards(player, chosen);
+      engine.log(`${player.name} 对 ${t.name} 发动【利箭】（n=${n}，点数和 ${total}）。`, 'play');
       let choice;
       const ta = engine.agentOf(t);
-      if (ta?.kind === 'ai') choice = (t.hp <= n) ? 'draw' : 'dmg'; // 会致死则给对方摸牌以求生
+      if (ta?.kind === 'ai') choice = (t.hp <= n) ? 'draw' : 'dmg';
       else { const r = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `利箭：①受${n}点强制伤害 ②${player.name}摸${n + 3}张牌`, options: [{ value: 'dmg', label: `受${n}点伤害` }, { value: 'draw', label: `${player.name}摸${n + 3}张` }] }); choice = r?.value || 'dmg'; }
       if (choice === 'dmg') await engine.dealDamage({ source: player, target: t, amount: n });
       else engine.drawCards(player, n + 3);
@@ -1371,19 +1474,46 @@ export const HS_SKILLS = {
       }
     },
   },
-  zuhe: { name: '组合', desc: '觉醒技：当4张【破碎】被抽取后，【低语】强化为弃3张锦囊、否则受2点伤害。' }, // 觉醒标记见 game.js
+  zuhe: {
+    name: '组合', desc: '觉醒技：当4张【破碎】被抽取后，【低语】强化为弃3张锦囊、否则受2点伤害，并立即追加使用一次【低语】。',
+    triggers: {
+      async anyEndPhase(engine, { owner }) {
+        if (!owner.skillState.zuhePending) return; // 觉醒标记见 game.js（_resolveShards / doJudge）
+        owner.skillState.zuhePending = false;
+        engine.log(`${owner.name}【组合】追加一次强化【低语】！`, 'play');
+        for (const t of engine.alivePlayers.filter((p) => p !== owner)) {
+          let discarded = 0;
+          for (let i = 0; i < 3; i++) {
+            const tricks = t.hand.filter((c) => CARD_DEFS[c.kind]?.type === CARD_TYPE.TRICK);
+            if (!tricks.length) break;
+            const resp = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `低语（组合）：弃置一张锦囊牌（还需${3 - discarded}张），或受到2点伤害`, options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })), { value: 'hurt', label: '受到2点伤害' }] });
+            const chosen = tricks.find((c) => c.id === resp?.value);
+            if (chosen) { engine.discardCards(t, [chosen]); discarded++; } else break;
+          }
+          if (discarded < 3) { await engine.dealDamage({ source: owner, target: t, amount: 2 }); if (engine.over) return; }
+        }
+      },
+    },
+  },
 
   // ===== 艾萨拉女王（古神）=====
   tandi: {
-    name: '探底', desc: '锁定技：你的回合开始时，将牌堆底的可用牌调整到牌堆顶（自动保留高价值牌）。',
+    name: '探底', desc: '锁定技：你的回合开始时，观看牌堆底3张牌，将每张选择置于牌堆顶或弃牌堆。',
     triggers: {
-      startPhase(engine, { player }) {
-        if (engine.deck.length < 4) return;
+      async startPhase(engine, { player }) {
+        if (engine.deck.length < 3) return;
         const bottom = engine.deck.splice(-3, 3);
-        // 价值高的置顶，其余回到底
-        bottom.sort((a, b) => (CARD_DEFS[b.kind]?.type === CARD_TYPE.EQUIP ? 1 : 2) - (CARD_DEFS[a.kind]?.type === CARD_TYPE.EQUIP ? 1 : 2));
-        engine.deck.unshift(...bottom);
-        engine.log(`${player.name} 发动【探底】，调整了牌堆底的牌。`, 'good');
+        const isAI = engine.agentOf(player)?.kind === 'ai';
+        const toTop = [], toDisc = [];
+        for (const c of bottom) {
+          let top = true; // AI：保守全部置顶（把底牌翻上来用）
+          if (!isAI) { const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `探底：将【${c.name}（${SUIT_NAME[c.suit]}${c.number}）】置于？`, options: [{ value: 'top', label: '牌堆顶' }, { value: 'discard', label: '弃牌堆' }] }); top = r?.value !== 'discard'; }
+          (top ? toTop : toDisc).push(c);
+        }
+        if (toTop.length) engine.deck.unshift(...toTop);
+        if (toDisc.length) engine.discard.push(...toDisc);
+        engine.log(`${player.name} 发动【探底】：${toTop.length}张置顶${toDisc.length ? `，${toDisc.length}张入弃牌堆` : ''}。`, 'good');
+        engine.changed();
       },
     },
   },
@@ -1408,33 +1538,39 @@ export const HS_SKILLS = {
 
   // ===== 哈加沙（部落）=====
   guhuo: {
-    name: '蛊惑', desc: '锁定技：你使用的【杀】改为放置在目标的领域（每人仅1张），在其回合结束时生效并多造成1点伤害；你使用【杀】无次数限制。',
-    // 杀放置逻辑见 effects.resolveCard；下面在目标回合结束时结算
+    name: '蛊惑', desc: '锁定技：你使用的【杀】改为作为实体牌置入目标的奥秘区（每人仅1张，旧的被顶替），在其回合结束时生效并多造成1点伤害；你使用【杀】无次数限制。',
+    // 杀放入目标奥秘区的逻辑见 effects.resolveCard；下面在目标回合结束时结算
     triggers: {
       async anyEndPhase(engine, { owner, turnPlayer }) {
-        if (!turnPlayer || !turnPlayer.guhuo || turnPlayer.guhuo.by !== owner.id) return;
-        const g = turnPlayer.guhuo; turnPlayer.guhuo = null;
+        if (!turnPlayer || !turnPlayer.secrets?.length) return;
+        const g = turnPlayer.secrets.find((s) => s.guhuoBy === owner.id);
+        if (!g) return;
+        removeFrom(turnPlayer.secrets, g);
+        const dmg = g.guhuoDmg || 2, nature = g.guhuoNature || 'normal';
+        g.guhuoBy = null; g.guhuoDmg = null; g.guhuoNature = null;
+        engine.discard.push(g); engine.changed();
         if (!owner.alive) return;
-        engine.log(`${turnPlayer.name} 领域中的【蛊惑·杀】生效！`, 'play');
-        await engine.dealDamage({ source: owner, target: turnPlayer, amount: g.dmg || 2, nature: g.nature || 'normal' });
+        engine.log(`${turnPlayer.name} 奥秘区的【蛊惑·杀】生效！`, 'play');
+        await engine.dealDamage({ source: owner, target: turnPlayer, amount: dmg, nature });
       },
     },
   },
   xianji: {
-    name: '献祭', desc: '锁定技：当你成为【杀】的目标、或你使用【杀】时，你摸一张牌。',
+    name: '献祭', desc: '锁定技：当你成为【杀】的目标、你使用【杀】、或你的【杀】造成伤害时，你各摸一张牌。',
     triggers: {
       async shaTargeted(engine, { target }) { engine.log(`${target.name} 发动【献祭】，摸一张牌。`, 'good'); engine.drawCards(target, 1); },
       async usedSha(engine, { player }) { engine.log(`${player.name} 发动【献祭】，摸一张牌。`, 'good'); engine.drawCards(player, 1); },
+      async dealDamage(engine, { source, card }) { if (card && isSha(card)) { engine.log(`${source.name} 发动【献祭】（【杀】生效），摸一张牌。`, 'good'); engine.drawCards(source, 1); } },
     },
   },
 
   // ===== 晨拥（部落）=====
   binhuo: {
-    name: '冰火', desc: '锁定技：你的【杀】对有装备的角色伤害+1，并在造成伤害后冻结其一张手牌；你的手牌无法被冻结。',
+    name: '冰火', desc: '锁定技：你对有装备的角色造成的伤害+1；你的伤害性牌造成伤害后冻结其一张手牌；你的手牌无法被冻结。',
     triggers: {
-      shaDamage: (engine, { target, base }) => (Object.values(target.equips).some(Boolean) ? base + 1 : base),
+      // 加伤改在 game.dealDamage 统一处理（对“任何伤害”生效，而不仅【杀】）
       async dealDamage(engine, { source, target, card }) {
-        if (!card || !isSha(card) || !target?.alive || !target.hand.length) return;
+        if (!card || !target?.alive || !target.hand.length) return; // 任何卡牌造成伤害后都冻结
         engine.log(`${source.name} 发动【冰火】，冻结 ${target.name} 一张手牌。`, 'play');
         engine.freezeHand(target, 1, source); // 传 freezer 以触发奥数
       },
@@ -1485,29 +1621,33 @@ export const HS_SKILLS = {
   },
   jinghua: {
     name: '精华', active: true, perTurn: true,
-    desc: '出牌阶段指定一种花色，立即将弃牌堆中所有该花色的牌收为“沉”（每回合一次）。',
+    desc: '出牌阶段指定一种花色：立即将弃牌堆中所有该花色的牌收为“沉”，且直到你下个回合开始前，所有置入弃牌堆的该花色牌都会变为“沉”（每回合一次）。',
     async action(engine, { player, move }) {
       player.flags.jinghuaUsed = true;
       const suit = move.suit || 'spade';
+      player.skillState.jinghuaSuit = suit; // 前瞻：持续拦截该花色（恩佐斯回合开始清除，钩子见 game._collectSink）
       const got = engine.discard.filter((c) => c.suit === suit);
       got.forEach((c) => removeFrom(engine.discard, c)); player.pile.push(...got);
-      engine.log(`${player.name} 发动【精华】，将弃牌堆 ${got.length} 张${SUIT_NAME[suit]}牌收为“沉”。`, 'good');
+      engine.log(`${player.name} 发动【精华】（${SUIT_NAME[suit]}），收取 ${got.length} 张，并持续到下个回合。`, 'good');
       engine.changed();
+    },
+    triggers: {
+      startPhase(engine, { player }) { player.skillState.jinghuaSuit = null; }, // 恩佐斯回合开始清除前瞻
     },
   },
   suxing: {
     name: '苏醒', active: true, limited: true,
-    desc: '限定技：减少1点体力上限并回复1点；直到你下个回合开始，所有角色无法回复体力（【生命之树】等治疗失效）。',
+    desc: '限定技：减少1点体力上限并回复1点；直到你下个回合开始，【生命之树】等所有治疗都改为对相应角色造成等量强制伤害。',
     async action(engine, { player }) {
       player.skillState.suxingUsed = true;
       player.maxHp = Math.max(1, player.maxHp - 1); if (player.hp > player.maxHp) player.hp = player.maxHp;
       engine.changed();
-      await engine.recover(player, 1);
-      engine.healDisabled = true;
-      engine.log(`${player.name} 发动限定技【苏醒】！本轮治疗失效。`, 'play');
+      await engine.recover(player, 1); // 此时尚未开启转化，正常回1
+      engine.healToHarm = true; engine.healToHarmBy = player;
+      engine.log(`${player.name} 发动限定技【苏醒】！本轮所有治疗将转化为等量伤害。`, 'play');
     },
     triggers: {
-      startPhase(engine) { engine.healDisabled = false; }, // 恩佐斯回合开始解除
+      startPhase(engine) { engine.healToHarm = false; engine.healToHarmBy = null; }, // 恩佐斯回合开始解除
     },
   },
 };

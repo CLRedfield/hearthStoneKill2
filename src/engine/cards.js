@@ -114,7 +114,7 @@ export const CARD_DEFS = {
   valanyr: { name: '瓦兰奈尔', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 3, recycleFreeze: true, desc: '进入弃牌堆时，你摸1张牌。若你回合结束时此牌仍在弃牌堆，则将其收回手牌并冻结。' },
   regicide: { name: '弑君', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 3, equipBackstab: true, toDeckTop: true, desc: '装备时视为凭空使用1张【背刺】。此牌进入弃牌堆时，改为置于牌堆顶。' },
   runblade: { name: '伦鲁迪洛尔', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 3, discardSuitsRefill: true, desc: '装备时，你可以弃掉3张不同花色的牌，然后将手牌摸至手牌上限。' },
-  runespear: { name: '符文之矛', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, drawAfterSha: 2, durability: 3, desc: '你使用【杀】结算后摸2张牌并可立即使用；触发3次后此武器损坏。' },
+  runespear: { name: '符文之矛', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, drawAfterSha: 2, durability: 3, desc: '你使用【杀】结算后摸2张牌并立即使用；触发3次后此武器损坏。' },
   esinosblade: { name: '埃辛诺斯刃', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, dynamicRange: 'drawnThisTurn', noShanIfFew: true, desc: '攻击范围X等于你本回合摸牌数。在你的回合，手牌数小于你攻击范围的角色无法使用【闪】。' },
   // ========== 克苏恩·破碎部件（抽到/判定到立即触发，使克苏恩受益）==========
   cthunheart: { name: '克苏恩之心', type: CARD_TYPE.BASIC, shard: 'heart', desc: '破碎：克苏恩体力上限+1并回复1点。' },

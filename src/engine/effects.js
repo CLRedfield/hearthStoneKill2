@@ -22,10 +22,11 @@ export function canUseSha(engine, user) {
   return (user.flags.shaUsed || 0) < limit;
 }
 
-export function shaTargets(engine, user) {
+export function shaTargets(engine, user, card = null) {
+  const ignoreDist = !!card?.noDist; // 克苏恩之眼·冲锋等：无视攻击范围
   return engine.alivePlayers.filter((t) => {
     if (t === user) return false;
-    if (!engine.inAttackRange(user, t)) return false;
+    if (!ignoreDist && !engine.inAttackRange(user, t)) return false;
     // 空城：无手牌的诸葛亮不能被杀指定
     if (hasSkill(t, 'kongcheng') && t.hand.length === 0) return false;
     // 暗影斗篷：本回合内无法被【杀】指定
@@ -161,6 +162,8 @@ async function _resolveCard(engine, ctx) {
     }
     if (!tgt) { engine.toDiscard([card]); return; }
     if (tgt.judge.some((j) => j.kind === card.kind)) { engine.toDiscard([card]); return; } // 防重复同名
+    // 无懈可击 / 法术反制：可抵消对他人贴放的延时锦囊（对自己贴放的闪电/瓶装闪电不触发）
+    if (tgt !== user && await nullified(engine, card, user, tgt)) { engine.toDiscard([card]); engine.log(`【${card.name}】被抵消。`, 'good'); return; }
     tgt.judge.push(stripVirtual(card));
     engine.log(`${user.name} 对 ${tgt.name} 使用【${card.name}】。`);
     engine.changed();
@@ -199,10 +202,20 @@ async function _resolveCard(engine, ctx) {
     // 蛊惑（哈加沙）：你的【杀】改为放置到目标领域，回合结束生效（多造成1点）
     if (hasSkill(user, 'guhuo') && targets[0]) {
       user.flags.shaUsed = (user.flags.shaUsed || 0) + 1;
-      engine.toDiscard([card]);
       const t = targets[0];
-      t.guhuo = { by: user.id, dmg: (def.dmg || 1) + 1, nature: card.nature || 'normal' };
-      engine.log(`${user.name} 发动【蛊惑】，将【${card.name}】置于 ${t.name} 的领域，其回合结束时生效。`, 'play');
+      // 将这张【杀】作为实体牌放入目标奥秘区（每人仅1张，旧的被顶替弃置），其回合结束时生效
+      t.secrets = t.secrets || [];
+      const old = t.secrets.find((s) => s.guhuoBy != null);
+      if (old) { removeFrom(t.secrets, old); old.guhuoBy = null; engine.discard.push(old); }
+      const reals = card.virtual ? (card.sourceCards || []) : [card];
+      const stamp = reals[0] || card;
+      stamp.guhuoBy = user.id;
+      stamp.guhuoDmg = (def.dmg || 1) + 1;
+      stamp.guhuoNature = card.nature || 'normal';
+      t.secrets.push(stamp);
+      if (reals.length > 1) engine.discard.push(...reals.slice(1)); // 丈八等多源牌：多余的进弃牌堆
+      engine.log(`${user.name} 发动【蛊惑】，将【${card.name}】置入 ${t.name} 的奥秘区，其回合结束时生效。`, 'play');
+      engine.changed();
       user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
       await triggerSkill(engine, 'usedSha', { player: user, card });
       await triggerSkill(engine, 'usedCard', { player: user, card });
@@ -418,25 +431,90 @@ async function playSha(engine, user, targets, card, ctx) {
     await resolveShaOn(engine, user, target, card);
     if (engine.over) return;
   }
-  // 符文之矛：杀结算后摸2张，使用 durability 次后损坏（骨架时两件武器各自结算）
+  // 符文之矛：杀结算后摸2张并立即使用这2张牌，触发 durability 次后损坏（骨架时两件武器各自结算）
   for (const w of weaponsOf(user)) {
-    if (!user.alive) break;
+    if (!user.alive || engine.over) break;
     const wd = CARD_DEFS[w.kind] || {};
     if (!wd.drawAfterSha) continue;
-    engine.drawCards(user, wd.drawAfterSha);
+    const got = engine.drawCards(user, wd.drawAfterSha);
     w.uses = (w.uses || 0) + 1;
-    if (w.uses >= (wd.durability || 3)) {
+    if (w.uses >= (wd.durability || 3)) { // 先判损坏：立即使用的【杀】不会让武器无限续杯
       if (user.equips[EQUIP_SLOT.WEAPON] === w) user.equips[EQUIP_SLOT.WEAPON] = null;
       else if (user.equips2 && user.equips2.weapon === w) user.equips2.weapon = null;
       engine.discard.push(w); engine.log(`${user.name} 的【${w.name}】损坏。`); engine.changed();
     }
+    for (const c of got) { if (!user.alive || engine.over) break; await useDrawnImmediately(engine, user, c); }
   }
+}
+
+// 符文之矛：立即使用刚摸到的一张牌（能用则用，不能主动使用的直接弃置）
+async function useDrawnImmediately(engine, user, card) {
+  if (!card || !user.alive || engine.over) return;
+  if (!user.hand.includes(card) || card.frozen) return; // 已不在手牌（如破碎部件/古尔丹诅咒）或被冻结
+  const def = CARD_DEFS[card.kind] || {};
+  const role = cardAs(card);
+  const others = engine.alivePlayers.filter((p) => p !== user);
+  const human = engine.agentOf?.(user)?.kind !== 'ai';
+  // 无法立即使用 → 直接弃置（会正常联动火眼/低吼等弃牌机制）
+  const dump = () => { engine.log(`${user.name}（符文之矛）无法立即使用【${card.name}】，将其弃置。`, 'system'); engine.discardCards(user, [card]); };
+  const pickTarget = async (cands, byHp) => {
+    if (!cands.length) return null;
+    const sorted = cands.slice().sort((a, b) => {
+      const aa = engine.isAlly(user, a) ? 1 : 0, bb = engine.isAlly(user, b) ? 1 : 0;
+      if (aa !== bb) return aa - bb;
+      return byHp ? a.hp - b.hp : b.hand.length - a.hand.length;
+    });
+    if (!human) return sorted[0];
+    const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: `符文之矛·立即使用【${card.name}】：选择目标`, options: sorted.map((c) => ({ value: c.id, label: c.name })) });
+    return engine.playerById(r?.value) || sorted[0];
+  };
+  let targets = [];
+  if (def.type === CARD_TYPE.EQUIP) {
+    // 装备：直接装上（无目标）
+  } else if (def.type === CARD_TYPE.SECRET) {
+    if ((user.secrets || []).some((s) => s.kind === card.kind)) return dump(); // 同名奥秘已存在
+  } else if (role === 'sha') {
+    const t = await pickTarget(shaTargets(engine, user, card), true);
+    if (!t) return dump(); // 无合法目标
+    targets = [t];
+  } else if (role === 'shan') {
+    return dump(); // 【闪】不能主动使用
+  } else if (role === 'tao') {
+    if (def.healAlly) { const t = await pickTarget(others, true); if (!t) return dump(); targets = [t]; }
+    else if (user.hp >= user.maxHp) return dump(); // 满体力无需回复
+  } else if (role === 'jiu') {
+    if (user.flags.jiuUsed) return dump();
+  } else if (def.type === CARD_TYPE.DELAYED) {
+    if (def.behaves === 'shandian' || card.kind === 'shandian' || card.kind === 'pingzhuangshandian') {
+      if (user.judge.some((j) => j.kind === card.kind)) return dump();
+      targets = [user];
+    } else {
+      const t = await pickTarget(validTargets(engine, user, card), false);
+      if (!t) return dump();
+      targets = [t];
+    }
+  } else if (def.type === CARD_TYPE.TRICK && def.as !== 'wuxie' && card.kind !== 'wuxie') {
+    const beh = def.behaves || card.kind;
+    if (beh === 'jiedao' || beh === 'hengchong') return dump(); // 需两段目标，无法立即使用
+    if (def.target === 'self') targets = [user];
+    else if (def.target === 'all') targets = engine.alivePlayers.slice();
+    else if (def.target === 'all_other') targets = others;
+    else { const t = await pickTarget(validTargets(engine, user, card), false); if (!t) return dump(); targets = [t]; }
+  } else {
+    return dump(); // 【无懈可击】等无法主动使用
+  }
+  const beforeSha = user.flags.shaUsed || 0;
+  removeFrom(user.hand, card);
+  engine.log(`${user.name}（符文之矛）立即使用【${card.name}】！`, 'play');
+  await resolveCard(engine, { user, card, targets, options: {} });
+  if (role === 'sha' && user.alive) user.flags.shaUsed = beforeSha; // 立即使用的【杀】不占用正常出杀次数
 }
 
 async function fireShaSecrets(engine, target, attacker, card) {
   let canceled = false;
   for (const s of [...(target.secrets || [])]) {
     if (engine.over) break;
+    if (s.guhuoBy != null) continue; // 蛊惑·杀置于奥秘区，但不是触发型奥秘，跳过
     if (s.kind === 'bingdongxianjing') {
       removeFrom(target.secrets, s); engine.discard.push(s);
       engine.log(`${target.name} 触发奥秘【冰冻陷阱】！`, 'good');
@@ -541,6 +619,28 @@ async function resolveShaOn(engine, user, target, card) {
     const jr = await engine.doJudge(user, '白银之枪');
     if (lastShan && jr.number > lastShan.number) { dodged = false; engine.log(`判定点数 ${jr.number} 大于【闪】点数 ${lastShan.number}，此【闪】无效！`, 'bad'); }
     else engine.log(`判定点数 ${jr.number}${lastShan ? '不大于【闪】点数 ' + lastShan.number : ''}，【闪】生效。`);
+  }
+
+  // 贯石斧：你的【杀】被【闪】抵消时，可弃两张牌，令此【杀】强制造成伤害
+  if (dodged && hasWeaponKind(user, 'guanshi')) {
+    const pool = [...user.hand, ...Object.values(user.equips).filter(Boolean)];
+    if (pool.length >= 2) {
+      const resp = await engine.ask(user, {
+        type: REQ.CHOOSE_OPTION, title: '贯石斧：是否弃两张牌，令此【杀】强制造成伤害？',
+        options: [{ value: 'no', label: '否' }, { value: 'yes', label: '弃两张牌→强制造成伤害' }],
+      });
+      if (resp?.value === 'yes') {
+        const r = await engine.ask(user, { type: REQ.DISCARD_CARDS, count: 2, from: 'all', title: '贯石斧：弃置两张牌' });
+        let cs = (r?.cards || []).map((x) => resolveCardRef(user, x)).filter(Boolean);
+        if (cs.length < 2) cs = [...cs, ...pool.filter((c) => !cs.includes(c)).slice(0, 2 - cs.length)];
+        cs = cs.slice(0, 2);
+        if (cs.length === 2) {
+          engine.discardCards(user, cs);
+          engine.log(`${user.name} 发动【贯石斧】，弃两张牌强制造成伤害！`, 'play');
+          dodged = false;
+        }
+      }
+    }
   }
 
   if (dodged) {
@@ -912,7 +1012,7 @@ async function nullifyChain(engine, { card, byUser, targetPlayer }) {
 
 async function askAnyWuxie(engine, { card, targetPlayer, isNullified }) {
   for (const p of engine.alivePlayers) {
-    const hasWuxie = p.hand.some((c) => c.kind === 'wuxie');
+    const hasWuxie = p.hand.some((c) => c.kind === 'wuxie' || CARD_DEFS[c.kind]?.as === 'wuxie');
     if (!hasWuxie) continue;
     const resp = await engine.ask(p, {
       type: REQ.ASK_NULLIFY, card, targetPlayer, isNullified,
