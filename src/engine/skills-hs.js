@@ -451,11 +451,12 @@ export const HS_SKILLS = {
     triggers: { shaDamage: (engine, { target, base }) => (target.hand.length > 5 ? base + 1 : base) },
   },
   liuxing: {
-    name: '流星雨', desc: '锁定技：你的回合内每使用一张牌，可指定一名角色交给你一张与该牌同花色的手牌，否则其受到1点强制伤害（每回合对同一角色至多3次）。',
+    name: '流星雨', desc: '你的回合内每使用一张牌，可指定一名角色交给你一张与该牌同花色的手牌，否则其受到1点强制伤害（每回合对同一角色至多3次）。',
     triggers: {
       startPhase(engine, { player }) { player.skillState.liuxingCounts = {}; },
       async usedCard(engine, { player, card }) {
         if (engine.turnOwner !== player) return;
+        if (!SUIT_NAME[card.suit]) return; // 无花色的虚拟牌不触发
         const counts = player.skillState.liuxingCounts || (player.skillState.liuxingCounts = {});
         const cand = engine.alivePlayers.filter((p) => p !== player && (counts[p.id] || 0) < 3);
         if (!cand.length) return;
@@ -472,14 +473,20 @@ export const HS_SKILLS = {
         }
         if (!t) return;
         counts[t.id] = (counts[t.id] || 0) + 1;
-        const give = t.hand.find((c) => c.suit === card.suit);
-        if (give) {
+        const matches = t.hand.filter((c) => c.suit === card.suit);
+        let give = null;
+        if (matches.length) {
           const ta = engine.agentOf(t);
-          let giveIt;
-          if (ta?.kind === 'ai') giveIt = t.hp <= 2; // AI：残血宁可交牌
-          else { const r = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `流星雨：交给 ${player.name} 一张${SUIT_NAME[card.suit]}牌，或受到1点伤害`, options: [{ value: 'give', label: `交${SUIT_NAME[card.suit]}牌` }, { value: 'hurt', label: '受到1点伤害' }] }); giveIt = r?.value === 'give'; }
-          if (giveIt) { removeFrom(t.hand, give); player.hand.push(give); engine.log(`${t.name} 交给 ${player.name} 一张${SUIT_NAME[card.suit]}牌（流星雨）。`); engine.changed(); return; }
+          if (ta?.kind === 'ai') { if (t.hp <= 2) give = matches[0]; } // AI：残血宁可交牌
+          else {
+            const r = await engine.ask(t, {
+              type: REQ.CHOOSE_OPTION, title: `流星雨：交给 ${player.name} 一张${SUIT_NAME[card.suit]}手牌，或受到1点伤害`,
+              options: [...matches.map((c) => ({ value: c.id, label: `交出 ${c.name}(${c.number})`, card: c })), { value: 'hurt', label: '受到1点伤害' }],
+            });
+            if (r?.value && r.value !== 'hurt') give = matches.find((c) => c.id === r.value) || null;
+          }
         }
+        if (give) { removeFrom(t.hand, give); player.hand.push(give); engine.log(`${t.name} 交给 ${player.name} 一张${SUIT_NAME[card.suit]}牌（流星雨）。`); engine.changed(); return; }
         await engine.dealDamage({ source: player, target: t, amount: 1 });
       },
     },
