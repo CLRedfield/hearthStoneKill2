@@ -105,6 +105,11 @@ export const CARD_DEFS = {
   yiyanhuanyan: { name: '以眼还眼', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：一名角色对你造成伤害后，对其造成等量强制伤害。' },
   xieejimou: { name: '邪恶计谋', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用了2张锦囊牌或奥秘牌后，你抽3张牌。' },
   wudao: { name: '误导', type: CARD_TYPE.SECRET, on: 'trickTarget', desc: '奥秘：1张非范围锦囊牌指定你时，改为指定另外一名角色。' },
+  qingsuan: { name: '清算', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：当一名角色造成3点或以上伤害时，使此次伤害无效，然后当前回合立即进入结束阶段。' },
+  jiushu: { name: '救赎', type: CARD_TYPE.SECRET, on: 'death', desc: '奥秘：一名角色死亡时，使其复活并具有1点生命，抽1张牌。' },
+  binkuai: { name: '寒冰屏障', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：当你受到致命伤害时，免疫此伤害，并在你回合结束前获得免疫。' },
+  feigongping: { name: '非公平游戏', type: CARD_TYPE.SECRET, on: 'round', desc: '奥秘：你在一轮中没有受到伤害，抽4张牌。' },
+  fangyujuzhen: { name: '防御矩阵', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：一名角色被普通伤害攻击时，使其免疫此次伤害并恢复1点生命。' },
 
   // ========== 补全·武器 ==========
   wanqian: { name: '万千箴言剑', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 5, seventhOnly: true, discardAllOnTarget: true, desc: '仅能作为你本回合打出的第7张牌使用。当你的【杀】指定一名角色时，弃掉其所有牌。' },
@@ -248,12 +253,17 @@ const HS_DECK_LIST = [
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),
-  // 奥秘（全 5 种，每种 1 张，花色点数与卡面一致）
+  // 奥秘（全 10 种，每种 1 张，花色点数与卡面一致）
   { kind: 'zhengfa', suit: 'heart', number: 8 },
   { kind: 'zhasi', suit: 'club', number: 11 },
   { kind: 'yiyanhuanyan', suit: 'diamond', number: 7 },
   { kind: 'xieejimou', suit: 'club', number: 9 },
   { kind: 'wudao', suit: 'spade', number: 9 },
+  { kind: 'qingsuan', suit: 'diamond', number: 11 },
+  { kind: 'jiushu', suit: 'diamond', number: 7 },
+  { kind: 'binkuai', suit: 'heart', number: 6 },
+  { kind: 'feigongping', suit: 'heart', number: 10 },
+  { kind: 'fangyujuzhen', suit: 'diamond', number: 8 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）

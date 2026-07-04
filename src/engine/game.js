@@ -426,6 +426,7 @@ export class GameEngine {
     if (player.nextUseCap != null) { player.flags.useCap = player.nextUseCap; player.nextUseCap = null; }
     this.turnOwner = player;       // 暗影步：记录本回合进入弃牌堆的牌
     this.turnRecallable = [];
+    this.skipToEnd = false;        // 清算（奥秘）：置为 true 后本回合直接进入结束阶段
     // 每回合一次的技能状态清空
     player.skillState.zhihengUsed = false;
     player.skillState.qingnangUsed = false;
@@ -444,7 +445,7 @@ export class GameEngine {
     if (!player.alive) return;
     await this._phaseJudge(player);
     if (this.over || !player.alive) return;
-    if (!player.flags.skipPlay) {
+    if (!player.flags.skipPlay && !this.skipToEnd) {
       if (!player.flags.skipDraw) await this._phaseDraw(player);
       if (this.over || !player.alive) return;
       await this._phasePlay(player);
@@ -452,9 +453,10 @@ export class GameEngine {
     }
     // 冻结不再拖到下回合：弃牌阶段前解冻本回合内被冻的手牌
     await this._thawPlayer(player);
-    if (!player.flags.skipDiscard) await this._phaseDiscard(player);
+    if (!player.flags.skipDiscard && !this.skipToEnd) await this._phaseDiscard(player);
     if (this.over || !player.alive) return;
     await this._phaseEnd(player);
+    player.iceBlockImmune = false; // 寒冰屏障：免疫持续到自己的回合结束
   }
 
   _setPhase(ph) { this.phase = ph; this.changed(); }
@@ -517,6 +519,16 @@ export class GameEngine {
     // 艾露尼斯：准备阶段额外摸牌
     const w = player.equips[EQUIP_SLOT.WEAPON];
     if (w && CARD_DEFS[w.kind]?.startDraw) this.drawCards(player, CARD_DEFS[w.kind].startDraw);
+    // 非公平游戏（奥秘）：一轮中没有受到伤害 → 抽4张；受过伤则重开观察窗口
+    for (const s of [...(player.secrets || [])]) {
+      if (s.kind !== 'feigongping') continue;
+      if (s.dmgDirty) { s.dmgDirty = false; continue; }
+      removeFrom(player.secrets, s); this.discard.push(s);
+      this.fx('secret', { playerId: player.id, label: '非公平游戏' });
+      this.log(`${player.name} 触发奥秘【非公平游戏】，抽四张牌！`, 'good');
+      this.drawCards(player, 4);
+      this.changed();
+    }
     await triggerSkill(this, 'startPhase', { player });
     await this.pause(250);
   }
@@ -530,7 +542,7 @@ export class GameEngine {
       if (!player.judge.includes(dcard)) continue;
       removeFrom(player.judge, dcard);
       await this._resolveDelayed(player, dcard);
-      if (this.over || !player.alive) return;
+      if (this.over || !player.alive || this.skipToEnd) return;
     }
   }
 
@@ -668,6 +680,7 @@ export class GameEngine {
     this._setPhase(PHASE.PLAY);
     let guard = 0;
     while (player.alive && !this.over && guard++ < 60) {
+      if (this.skipToEnd) break; // 清算：立即进入结束阶段
       // 出牌次数上限（抑制等）：达到上限即结束出牌阶段
       if (player.flags.useCap != null && (player.flags.cardsUsed || 0) >= player.flags.useCap) {
         this.log(`${player.name} 本回合可用牌数已达上限。`, 'bad');
@@ -835,6 +848,12 @@ export class GameEngine {
       await this.pause(200);
       return;
     }
+    // 寒冰屏障（奥秘）已触发：到其回合结束前免疫伤害
+    if (target.iceBlockImmune) {
+      this.log(`${target.name}【寒冰屏障】免疫了这次伤害。`, 'good');
+      await this.pause(200);
+      return;
+    }
     // 暂避锋芒：免疫下一次伤害
     if (target.flags?.immuneNext) {
       delete target.flags.immuneNext;
@@ -897,11 +916,54 @@ export class GameEngine {
       amount = reduced;
       if (amount <= 0) { await this.pause(280); return; }
     }
+    // 清算（奥秘·任何角色可持有）：一名角色造成3点或以上伤害 → 伤害无效，当前回合立即进入结束阶段
+    if (source && amount >= 3) {
+      const holder = this.players.find((p) => p.alive && p !== source && p.secrets?.some((s) => s.kind === 'qingsuan'));
+      if (holder) {
+        const s = holder.secrets.find((x) => x.kind === 'qingsuan');
+        removeFrom(holder.secrets, s); this.discard.push(s);
+        this.fx('secret', { playerId: holder.id, label: '清算' });
+        this.skipToEnd = true;
+        this.log(`${holder.name} 触发奥秘【清算】，${source.name} 的 ${amount} 点伤害无效，本回合立即进入结束阶段！`, 'good');
+        this.changed();
+        await this.pause(360);
+        return;
+      }
+    }
+    // 防御矩阵（奥秘·任何角色可持有）：普通伤害 → 免疫此次伤害并令其恢复1点体力
+    if (source && nature === 'normal') {
+      const holder = this.players.find((p) => p.alive && p !== source && p.secrets?.some((s) => s.kind === 'fangyujuzhen'));
+      if (holder) {
+        const s = holder.secrets.find((x) => x.kind === 'fangyujuzhen');
+        removeFrom(holder.secrets, s); this.discard.push(s);
+        this.fx('secret', { playerId: holder.id, label: '防御矩阵' });
+        this.log(`${holder.name} 触发奥秘【防御矩阵】，${target.name} 免疫此次伤害并恢复1点体力！`, 'good');
+        this.changed();
+        await this.recover(target, 1);
+        await this.pause(360);
+        return;
+      }
+    }
+    // 寒冰屏障（奥秘）：致命伤害 → 免疫，并获得免疫直到你的回合结束
+    if (amount >= target.hp) {
+      const ib = target.secrets?.find((x) => x.kind === 'binkuai');
+      if (ib) {
+        removeFrom(target.secrets, ib); this.discard.push(ib);
+        this.fx('secret', { playerId: target.id, label: '寒冰屏障' });
+        target.iceBlockImmune = true;
+        this.log(`${target.name} 触发奥秘【寒冰屏障】，免疫致命伤害，并在其回合结束前保持免疫！`, 'good');
+        this.changed();
+        await this.pause(360);
+        return;
+      }
+    }
     this.log(
       `${source ? source.name + ' 对 ' : ''}${target.name} 造成 ${amount} 点${natureText(nature)}伤害。`,
       'damage'
     );
     target.hp -= amount;
+    // 非公平游戏（奥秘）：本轮受过伤 → 观察窗口作废，下轮重新累计
+    target.secrets?.forEach((s) => { if (s.kind === 'feigongping') s.dmgDirty = true; });
     if (source && source.skillState) source.skillState._dmgThisCard = true; // 神圣之触：标记本次使用的牌已造成伤害
     // 复活之甲：累计回合外受到的伤害（用于“一轮最多3点”上限）
     if (this.turnOwner !== target && armorsOf(target).some((a) => (CARD_DEFS[a.kind] || {}).offTurnCap != null)) {
@@ -1033,6 +1095,20 @@ export class GameEngine {
       this.log(`💀 ${player.name}（${player.general?.name}） 倒下了……`, 'death');
       this.changed();
       await this.pause(600);
+      return;
+    }
+    // 救赎（奥秘·任何角色可持有）：一名角色死亡时，使其以1点体力复活并抽1张牌（击杀者不触发自己的救赎）
+    for (const p of this.players) {
+      if (!p.alive || !p.secrets?.length) continue;
+      if (source && source === p) continue;
+      const rd = p.secrets.find((s) => s.kind === 'jiushu');
+      if (!rd) continue;
+      removeFrom(p.secrets, rd); this.discard.push(rd);
+      this.fx('secret', { playerId: p.id, label: '救赎' });
+      player.hp = 1;
+      this.log(`✨ ${p.name} 触发奥秘【救赎】，${player.name} 以1点体力复活并抽一张牌！`, 'win');
+      this.drawCards(player, 1);
+      this.changed();
       return;
     }
     player.alive = false;
