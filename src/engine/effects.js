@@ -96,8 +96,12 @@ export function validTargets(engine, user, card) {
       return others.filter((t) => !robed(t));
     }
     case 'one_has_card': return others.filter((t) => hasAnyCard(t) && !robed(t));
-    case 'one_has_equip':
-      return others.filter((t) => !robed(t) && (Object.values(t.equips).some(Boolean) || (t.equips2 && Object.values(t.equips2).some(Boolean))));
+    case 'one_has_equip': {
+      const hasEquip = (t) => Object.values(t.equips).some(Boolean) || (t.equips2 && Object.values(t.equips2).some(Boolean));
+      const withEquip = others.filter((t) => !robed(t) && hasEquip(t));
+      if (withEquip.length) return withEquip;                    // 场上有装备：只能选有装备的角色
+      return others.filter((t) => hasAnyCard(t) && !robed(t));    // 全场无人有装备：退化为可弃1张牌，任意有牌者
+    }
     case 'one_any': // 任意一名角色（含自己）；防护长袍仍挡他人的指向性锦囊
       return engine.alivePlayers.filter((t) => t === user || !robed(t));
     case 'one_in_1_has_card':
@@ -553,7 +557,13 @@ async function playAnzhong(engine, user, target, card) {
   const equipsOf = (t) => [...Object.values(t.equips).filter(Boolean), ...(t.equips2 ? Object.values(t.equips2).filter(Boolean) : [])];
   const agent = engine.agentOf(user);
   const eqs0 = equipsOf(target);
-  if (!eqs0.length) { engine.log(`${target.name} 没有装备，【暗中破坏】无效。`, 'system'); return; }
+  if (!eqs0.length) {
+    // 全场无人有装备 → 退化为弃掉目标 1 张牌
+    if (!hasAnyCard(target)) { engine.log(`${target.name} 没有可弃的牌，【暗中破坏】无效。`, 'system'); return; }
+    const picked = await chooseTargetCard(engine, user, target, `暗中破坏：弃掉 ${target.name} 一张牌`, true);
+    if (picked) { engine.discardCards(target, [picked]); engine.log(`${user.name} 的【暗中破坏】弃掉 ${target.name} 一张牌。`, 'play'); }
+    return;
+  }
   let first;
   if (agent?.kind === 'ai') first = eqs0[0];
   else {
@@ -664,6 +674,7 @@ async function playChaojie(engine, user, card) {
   if (!info || !CARD_DEFS[info.kind]) { engine.log(`${user.name} 此前没有使用过基本/锦囊牌，【潮汐之戒】无效。`, 'system'); return; }
   const v = virtualCard(info.kind, [], { suit: card.suit, number: card.number, red: card.red });
   v._noResponse = true; // 所有技能和卡牌都无法响应此牌
+  v.noDist = true;      // 不受使用限制：无视攻击范围（次数限制见下方 shaUsed 还原）
   const vdef = CARD_DEFS[info.kind];
   const role = cardAs(v);
   const human = engine.agentOf(user)?.kind !== 'ai';
@@ -697,7 +708,9 @@ async function playChaojie(engine, user, card) {
     }
   }
   engine.log(`${user.name} 的【潮汐之戒】视为使用【${v.name}】！`, 'play');
+  const beforeSha = user.flags.shaUsed || 0;
   await resolveCard(engine, { user, card: v, targets, options: {} });
+  if (user.alive) user.flags.shaUsed = beforeSha; // 不受使用限制：复刻的牌不占用【杀】使用次数
 }
 
 // ---------- 萨拉塔斯（宝藏武器）：使用本回合第n张牌时，可对所有距离n的角色造成n点伤害 ----------

@@ -86,7 +86,7 @@ export const CARD_DEFS = {
   hengchong: { name: '横冲直撞', type: CARD_TYPE.TRICK, behaves: 'hengchong', target: 'one_other', desc: '令一名角色对你指定的、其攻击范围内的角色使用一张【杀】；若其不使用，则其受到1点强制伤害。' },
   anyingbu: { name: '暗影步', type: CARD_TYPE.TRICK, behaves: 'anyingbu', target: 'self', desc: '将你本回合进入弃牌堆的一张牌收回手牌。' },
   zhaomingdan: { name: '照明弹', type: CARD_TYPE.TRICK, behaves: 'zhaomingdan', target: 'self', desc: '抉择：①弃掉场上所有的奥秘，若没有弃掉你的奥秘，则对你造成2点强制伤害；②抽1张牌，然后你可以弃掉场上1张奥秘。' },
-  anzhongpohuai: { name: '暗中破坏', type: CARD_TYPE.TRICK, behaves: 'anzhong', target: 'one_has_equip', desc: '弃掉一名角色1张使用中的装备牌。连击（本回合你使用过其他牌）：再弃掉其1张使用中的奥秘或装备牌。' },
+  anzhongpohuai: { name: '暗中破坏', type: CARD_TYPE.TRICK, behaves: 'anzhong', target: 'one_has_equip', desc: '弃掉一名角色1张使用中的装备牌（若全场无人使用装备，则改为弃掉一名角色1张牌）。连击（本回合你使用过其他牌）：再弃掉其1张使用中的奥秘或装备牌。' },
   zhenyanshudun: { name: '真言术盾', type: CARD_TYPE.TRICK, behaves: 'zhenyan', target: 'one_any', desc: '将牌库顶1张牌置于一名角色的武将牌上，称为"盾"（1张"盾"抵挡1点伤害，被摧毁后其拥有者抽1张牌）。' },
   zhuanzhuyizhi: { name: '专注意志', type: CARD_TYPE.DELAYED, target: 'one_other', desc: '置入一名角色判定区。其回合开始时判定：红色且点数3~13，其到下回合开始只能使用【杀】【闪】；黑色且点数3~13，其到下回合开始无法使用所有技能。' },
   fengkuangzhizaihuo: { name: '疯狂之灾祸', type: CARD_TYPE.TRICK, behaves: 'fengkuang', target: 'all_other', desc: '所有其他角色需弃置一张【杀】，弃置者视为对其下一名角色使用【冲锋】，未弃置者展示手牌。' },
@@ -140,7 +140,7 @@ export const CARD_DEFS = {
   shangguhaojiao: { name: '上古号角', type: CARD_TYPE.TRICK, behaves: 'haojiao', target: 'self', desc: '从武将牌中抽取5张，获得其中1名角色的锁定技或回合技。（沉落宝藏）' },
   salatasi: { name: '萨拉塔斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, desc: '当你使用本回合的第n张牌时，你可以对所有与你距离为n的角色造成n点普通伤害。（沉落宝藏）' },
   chaoxizhishi: { name: '潮汐之石', type: CARD_TYPE.TRICK, behaves: 'chaoshi', target: 'self', desc: '抽5张牌，并跳过本回合弃牌阶段。（沉落宝藏）' },
-  chaoxizhijie: { name: '潮汐之戒', type: CARD_TYPE.TRICK, behaves: 'chaojie', target: 'self', noResponse: true, desc: '该牌视为你使用的上一张基本或锦囊牌；当该牌被使用时，所有技能和卡牌都无法响应此牌。（沉落宝藏）' },
+  chaoxizhijie: { name: '潮汐之戒', type: CARD_TYPE.TRICK, behaves: 'chaojie', target: 'self', noResponse: true, desc: '该牌视为你使用的上一张基本或锦囊牌，且不受使用限制（无视次数与距离）；当该牌被使用时，所有技能和卡牌都无法响应此牌。（沉落宝藏）' },
 
   // ========== 补全·防具 ==========
   rebirtharmor: { name: '复活之甲', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, capDamage: 1, offTurnCap: 3, desc: '你每次最多受到1点伤害。在你回合外的一轮中，你最多受到3点伤害。' },
