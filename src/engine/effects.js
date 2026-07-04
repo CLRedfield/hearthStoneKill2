@@ -95,6 +95,8 @@ export function validTargets(engine, user, card) {
       return others.filter((t) => !robed(t));
     }
     case 'one_has_card': return others.filter((t) => hasAnyCard(t) && !robed(t));
+    case 'one_has_equip':
+      return others.filter((t) => !robed(t) && (Object.values(t.equips).some(Boolean) || (t.equips2 && Object.values(t.equips2).some(Boolean))));
     case 'one_in_1_has_card':
       return others.filter((t) => hasAnyCard(t) && !robed(t) && engine.distance(user, t) <= 1);
     case 'all': return engine.alivePlayers.slice();
@@ -174,12 +176,30 @@ async function fireFrostTrap(engine, user, card) {
   await engine.pause(320);
   return true;
 }
+
+// 爆炸符文（奥秘）：一名角色使用装备/奥秘牌时，弃掉这张牌，再弃掉其1张牌
+async function fireExplosiveRunes(engine, user, card) {
+  const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'baozhafuwen'));
+  if (!holder) return false;
+  const s = holder.secrets.find((x) => x.kind === 'baozhafuwen');
+  removeFrom(holder.secrets, s); engine.discard.push(s);
+  engine.fx('secret', { playerId: holder.id, label: '爆炸符文' });
+  const reals = card.virtual ? (card.sourceCards || []) : [card];
+  engine.toDiscard(reals, user);
+  engine.log(`${holder.name} 触发奥秘【爆炸符文】，【${card.name}】被炸毁！`, 'good');
+  const extra = randomCardOf(user);
+  if (extra) engine.discardCards(user, [extra]);
+  engine.changed();
+  await engine.pause(320);
+  return true;
+}
 async function _resolveCard(engine, ctx) {
   const { user, card, targets } = ctx;
   const def = CARD_DEFS[card.kind];
 
   // 装备牌
   if (def.type === CARD_TYPE.EQUIP) {
+    if (await fireExplosiveRunes(engine, user, card)) return; // 爆炸符文：装备被炸毁
     engine.equip(user, card);
     if (def.discardSuitsRefill) await applyRunblade(engine, user); // 伦鲁迪洛尔
     if (def.equipBackstab) { // 弑君：凭空背刺一名角色
@@ -212,6 +232,7 @@ async function _resolveCard(engine, ctx) {
     await engine.noteSpellUse(user); // 先计数（可触发他人【邪恶计谋】），再放置并记快照
     if (await fireSpellResonance(engine, user, card)) return;
     if (await fireFrostTrap(engine, user, card)) return;
+    if (await fireExplosiveRunes(engine, user, card)) return;
     card.xiejiBase = { ...(engine._spellUses || {}) };
     user.secrets.push(card);
     engine.log(`${user.name} 设置了一个奥秘。`, 'play');
@@ -331,7 +352,7 @@ async function _resolveCard(engine, ctx) {
   user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
   // 误导（奥秘）：非范围指向性锦囊指定他人时，可改为指定另外一名角色
   if (def.type === CARD_TYPE.TRICK && targets.length === 1 && targets[0]
-    && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai'].includes(behaves)) {
+    && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai', 'anzhong'].includes(behaves)) {
     targets[0] = await fireMisdirect(engine, user, targets[0], card);
   }
   switch (behaves) {
@@ -355,6 +376,8 @@ async function _resolveCard(engine, ctx) {
     case 'oddhp': await playOddHp(engine, user, card); break;
     case 'ksenmask': await playKsenMask(engine, user, card); break;
     case 'kangkai': await playKangkai(engine, user, targets[0], card); break;
+    case 'zhaomingdan': await playZhaomingdan(engine, user, card); break;
+    case 'anzhong': await playAnzhong(engine, user, targets[0], card); break;
     case 'hsjuedou': await playHsJuedou(engine, user, targets[0], card); break;
     case 'hengchong': {
       const victim = engine.playerById(ctx.options?.victim) || targets[1];
@@ -434,6 +457,112 @@ async function playKangkai(engine, user, target, card) {
   }
   engine.drawCards(user, 3);
   engine.changed();
+}
+
+// ---------- 照明弹：抉择 ①弃场上所有奥秘（没弃到自己的则受2点强制） ②抽1可弃1张奥秘 ----------
+async function playZhaomingdan(engine, user, card) {
+  engine.toDiscard([card]);
+  if (await nullified(engine, card, user, user)) return;
+  const listSecrets = () => {
+    const out = [];
+    for (const p of engine.alivePlayers) (p.secrets || []).forEach((sc, i) => { if (sc.guhuoBy == null) out.push({ p, sc, i }); });
+    return out;
+  };
+  const mineUp = (user.secrets || []).some((sc) => sc.guhuoBy == null);
+  let pick;
+  const agent = engine.agentOf(user);
+  if (agent?.kind === 'ai') {
+    pick = mineUp ? 'wipe' : 'draw'; // 自己有奥秘垫背才敢全弃
+  } else {
+    const r = await engine.ask(user, {
+      type: REQ.CHOOSE_OPTION, title: '照明弹·抉择',
+      options: [
+        { value: 'wipe', label: `①弃掉场上所有奥秘${mineUp ? '' : '（你没有奥秘：将受2点强制伤害）'}` },
+        { value: 'draw', label: '②抽1张牌，然后可弃掉场上1张奥秘' },
+      ],
+    });
+    pick = r?.value === 'draw' ? 'draw' : 'wipe';
+  }
+  if (pick === 'wipe') {
+    const all = listSecrets();
+    let mine = 0;
+    for (const { p, sc } of all) { removeFrom(p.secrets, sc); engine.discard.push(sc); if (p === user) mine++; }
+    engine.log(`${user.name} 的【照明弹】弃掉场上 ${all.length} 张奥秘！`, 'play');
+    engine.changed();
+    if (!mine) {
+      engine.log(`${user.name} 没有弃掉自己的奥秘，受到2点强制伤害！`, 'bad');
+      await engine.dealDamage({ source: null, target: user, amount: 2 });
+    }
+    return;
+  }
+  engine.drawCards(user, 1);
+  const all = listSecrets();
+  if (!all.length) return;
+  let chosen = null;
+  if (agent?.kind === 'ai') {
+    chosen = all.find(({ p }) => p !== user && !engine.isAlly(user, p)) || null;
+  } else {
+    const r = await engine.ask(user, {
+      type: REQ.CHOOSE_OPTION, title: '照明弹：可弃掉场上1张奥秘（可放弃）',
+      options: [...all.map(({ p, i }, idx) => ({ value: idx, label: `${p.name} 的奥秘#${i + 1}` })), { value: 'skip', label: '放弃' }],
+    });
+    if (r && r.value !== 'skip') chosen = all[r.value | 0] || null;
+  }
+  if (chosen) {
+    removeFrom(chosen.p.secrets, chosen.sc); engine.discard.push(chosen.sc);
+    engine.log(`${user.name} 的【照明弹】弃掉 ${chosen.p.name} 的一张奥秘。`, 'play');
+    engine.changed();
+  }
+}
+
+// ---------- 暗中破坏：弃目标1张装备；连击（本回合用过其他牌）再弃其1张奥秘/装备 ----------
+async function playAnzhong(engine, user, target, card) {
+  engine.toDiscard([card]);
+  if (!target) return;
+  if (await nullified(engine, card, user, target)) return;
+  const equipsOf = (t) => [...Object.values(t.equips).filter(Boolean), ...(t.equips2 ? Object.values(t.equips2).filter(Boolean) : [])];
+  const agent = engine.agentOf(user);
+  const eqs0 = equipsOf(target);
+  if (!eqs0.length) { engine.log(`${target.name} 没有装备，【暗中破坏】无效。`, 'system'); return; }
+  let first;
+  if (agent?.kind === 'ai') first = eqs0[0];
+  else {
+    const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: `暗中破坏：弃掉 ${target.name} 的一张装备`, options: eqs0.map((c) => ({ value: c.id, label: c.name, card: c })) });
+    first = eqs0.find((c) => c.id === r?.value) || eqs0[0];
+  }
+  engine.discardCards(target, [first]);
+  engine.log(`${user.name} 的【暗中破坏】弃掉 ${target.name} 的【${first.name}】。`, 'play');
+  // 连击：锦囊结算前 cardsUsed 已含本牌，此前用过其他牌 → ≥2
+  if ((user.flags.cardsUsed || 0) < 2) return;
+  const eqs = equipsOf(target);
+  const slots = (target.secrets || []).map((sc, i) => ({ sc, i })).filter(({ sc }) => sc.guhuoBy == null);
+  if (!eqs.length && !slots.length) return;
+  let choice = null;
+  if (agent?.kind === 'ai') {
+    choice = slots.length ? { type: 'secret', ...slots[0] } : { type: 'equip', c: eqs[0] };
+  } else {
+    const r = await engine.ask(user, {
+      type: REQ.CHOOSE_OPTION, title: `暗中破坏·连击：再弃掉 ${target.name} 的一张奥秘或装备（可放弃）`,
+      options: [
+        ...eqs.map((c) => ({ value: 'e:' + c.id, label: c.name, card: c })),
+        ...slots.map(({ i }) => ({ value: 's:' + i, label: `奥秘#${i + 1}` })),
+        { value: 'skip', label: '放弃' },
+      ],
+    });
+    if (r?.value && r.value !== 'skip') {
+      if (String(r.value).startsWith('e:')) { const c = eqs.find((x) => 'e:' + x.id === r.value); if (c) choice = { type: 'equip', c }; }
+      else { const i = parseInt(String(r.value).slice(2), 10); const slot = slots.find((x) => x.i === i); if (slot) choice = { type: 'secret', ...slot }; }
+    }
+  }
+  if (!choice) return;
+  if (choice.type === 'equip') {
+    engine.discardCards(target, [choice.c]);
+    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的【${choice.c.name}】。`, 'play');
+  } else {
+    removeFrom(target.secrets, choice.sc); engine.discard.push(choice.sc);
+    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的一张奥秘。`, 'play');
+    engine.changed();
+  }
 }
 
 // ---------- 炉石杀·决斗：比较手牌【杀】数（你视为多1张），少者受1点 ----------

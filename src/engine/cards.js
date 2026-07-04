@@ -82,6 +82,8 @@ export const CARD_DEFS = {
   kangkaidaifang: { name: '慷慨大方', type: CARD_TYPE.TRICK, behaves: 'kangkai', target: 'one_other', desc: '交给一名角色一张手牌，然后你摸三张牌。' },
   hengchong: { name: '横冲直撞', type: CARD_TYPE.TRICK, behaves: 'hengchong', target: 'one_other', desc: '令一名角色对你指定的、其攻击范围内的角色使用一张【杀】；若其不使用，则其受到1点强制伤害。' },
   anyingbu: { name: '暗影步', type: CARD_TYPE.TRICK, behaves: 'anyingbu', target: 'self', desc: '将你本回合进入弃牌堆的一张牌收回手牌。' },
+  zhaomingdan: { name: '照明弹', type: CARD_TYPE.TRICK, behaves: 'zhaomingdan', target: 'self', desc: '抉择：①弃掉场上所有的奥秘，若没有弃掉你的奥秘，则对你造成2点强制伤害；②抽1张牌，然后你可以弃掉场上1张奥秘。' },
+  anzhongpohuai: { name: '暗中破坏', type: CARD_TYPE.TRICK, behaves: 'anzhong', target: 'one_has_equip', desc: '弃掉一名角色1张使用中的装备牌。连击（本回合你使用过其他牌）：再弃掉其1张使用中的奥秘或装备牌。' },
   fengkuangzhizaihuo: { name: '疯狂之灾祸', type: CARD_TYPE.TRICK, behaves: 'fengkuang', target: 'all_other', desc: '所有其他角色需弃置一张【杀】，弃置者视为对其下一名角色使用【冲锋】，未弃置者展示手牌。' },
   // ========== 延时锦囊 ==========
   guldanhand: { name: '古尔丹之手', type: CARD_TYPE.DELAYED, target: 'one_other', desc: '目标回合开始时判定：非梅花则跳过其摸牌阶段；梅花则其本回合加入手牌的牌都会被弃置。' },
@@ -115,6 +117,7 @@ export const CARD_DEFS = {
   chaoxi: { name: '抄袭', type: CARD_TYPE.SECRET, on: 'turnEnd', desc: '奥秘：一名角色回合结束后，获得其在此回合所有使用的牌（包括装备和奥秘）。' },
   bushuxianjing: { name: '捕鼠陷阱', type: CARD_TYPE.SECRET, on: 'cards', desc: '奥秘：当一名角色在自己的回合中累计使用3张牌时，你抽1张牌，并使其获得"过载2"。' },
   bingshuangxianjing: { name: '冰霜陷阱', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用锦囊或奥秘时，冻结此牌，并再冻结其2张牌，这些牌在其下回合结束后解冻。' },
+  baozhafuwen: { name: '爆炸符文', type: CARD_TYPE.SECRET, on: 'equips', desc: '奥秘：当一名角色使用1张装备或奥秘时，弃掉这张牌，再弃掉其1张牌。' },
 
   // ========== 补全·武器 ==========
   wanqian: { name: '万千箴言剑', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 5, seventhOnly: true, discardAllOnTarget: true, desc: '仅能作为你本回合打出的第7张牌使用。当你的【杀】指定一名角色时，弃掉其所有牌。' },
@@ -258,7 +261,7 @@ const HS_DECK_LIST = [
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),
-  // 奥秘（全 15 种，每种 1 张，花色点数与卡面一致）
+  // 奥秘（全 16 种，每种 1 张，花色点数与卡面一致）
   { kind: 'zhengfa', suit: 'heart', number: 8 },
   { kind: 'zhasi', suit: 'club', number: 11 },
   { kind: 'yiyanhuanyan', suit: 'diamond', number: 7 },
@@ -274,6 +277,16 @@ const HS_DECK_LIST = [
   { kind: 'chaoxi', suit: 'club', number: 7 },
   { kind: 'bushuxianjing', suit: 'spade', number: 11 },
   { kind: 'bingshuangxianjing', suit: 'spade', number: 5 },
+  { kind: 'baozhafuwen', suit: 'heart', number: 2 },
+  // 反奥秘/反装备锦囊（照明弹×4、暗中破坏×4，花色点数按卡面）
+  { kind: 'zhaomingdan', suit: 'heart', number: 4 },
+  { kind: 'zhaomingdan', suit: 'heart', number: 4 },
+  { kind: 'zhaomingdan', suit: 'heart', number: 4 },
+  { kind: 'zhaomingdan', suit: 'heart', number: 4 },
+  { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
+  { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
+  { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
+  { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）

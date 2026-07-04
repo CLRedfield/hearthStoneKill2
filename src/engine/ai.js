@@ -143,7 +143,7 @@ export class AIAgent {
     const { engine, player, card, targetPlayer } = req;
     const opts = wuxieOptions(player);
     if (!opts.length) return null;
-    const harmful = ['guohe', 'shunshou', 'juedou', 'nanman', 'wanjian', 'lebu', 'shandian', 'fushishu', 'guldanhand', 'pingzhuangshandian'].includes(card.kind);
+    const harmful = ['guohe', 'shunshou', 'juedou', 'nanman', 'wanjian', 'lebu', 'shandian', 'fushishu', 'guldanhand', 'pingzhuangshandian', 'anzhongpohuai'].includes(card.kind);
     const helpful = ['wuzhong', 'taoyuan', 'wugu'].includes(card.kind);
     // 抵消针对己方的有害锦囊
     if (harmful && targetPlayer && engine.isAlly(player, targetPlayer) && Math.random() < 0.7) {
@@ -546,6 +546,19 @@ export class AIAgent {
       const withEquip = tgts.filter((t) => Object.values(t.equips).some(Boolean));
       const tgt = withEquip[0] || tgts.sort((a, b) => b.hand.length - a.hand.length)[0];
       if (tgt) return { type: 'play', card: c, targets: [tgt] };
+    }
+    // 7.5) 暗中破坏：拆有装备的敌人
+    const az = handOfBeh('anzhong');
+    if (az) {
+      const tgts = validTargets(engine, player, az).filter((t) => enemies.includes(t));
+      if (tgts.length) return { type: 'play', card: az, targets: [tgts[0]] };
+    }
+    // 7.6) 照明弹：敌方有奥秘（或自己有奥秘垫背）时使用
+    const zm = handOfBeh('zhaomingdan');
+    if (zm) {
+      const enemySecret = enemies.some((t) => (t.secrets || []).some((s) => s.guhuoBy == null));
+      const mine = (player.secrets || []).some((s) => s.guhuoBy == null);
+      if (enemySecret || mine) return { type: 'play', card: zm, targets: [player] };
     }
 
     // 8) 普通杀
