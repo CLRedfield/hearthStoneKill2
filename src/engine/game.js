@@ -404,6 +404,7 @@ export class GameEngine {
       if (p.alive) {
         await this.runTurn(p);
       }
+      this._reviveFeigned(); // 诈死：当前回合结束后复活
       if (this.over) break;
       this._advanceTurn();
     }
@@ -863,15 +864,6 @@ export class GameEngine {
       if (ad.offTurnCap != null && this.turnOwner !== target) amount = Math.min(amount, Math.max(0, ad.offTurnCap - (target.offTurnDamage || 0)));
     }
     if (amount <= 0) { this.log(`${target.name} 免疫了这次伤害。`, 'good'); await this.pause(200); return; }
-    // 寒冰屏障（奥秘）：防止此次伤害
-    const ice = target.secrets?.find((s) => s.kind === 'binkuai');
-    if (ice) {
-      removeFrom(target.secrets, ice); this.discard.push(ice);
-      this.log(`${target.name} 触发奥秘【寒冰屏障】，防止此次伤害！`, 'good');
-      this.fx('secret', { playerId: target.id, label: '寒冰屏障' });
-      await this.pause(360);
-      return;
-    }
     const _removeArmor = (a) => { if (target.equips[EQUIP_SLOT.ARMOR] === a) target.equips[EQUIP_SLOT.ARMOR] = null; else if (target.equips2 && target.equips2.armor === a) target.equips2.armor = null; this.discard.push(a); this.log(`【${a.name}】损坏。`); };
     // 埃辛诺斯盾：免疫整次伤害，用尽后损坏
     const esino = armorsOf(target).find((a) => (CARD_DEFS[a.kind] || {}).immuneInstances && a.immuneCharges > 0);
@@ -922,21 +914,27 @@ export class GameEngine {
     await triggerSkill(this, 'damaged', { player: target, source, amount, nature, card });
     // 造成伤害后技能（猛击等，来源触发）
     if (source) await triggerSkill(this, 'dealDamage', { source, target, amount, nature, card });
-    // 以眼还眼（奥秘）：受到伤害后对来源造成等量伤害
+    // 蒸发（奥秘）：一名角色对你造成伤害后，弃掉其所有装备和奥秘
+    const zf = target.secrets?.find((s) => s.kind === 'zhengfa');
+    if (zf && source && source !== target && source.alive) {
+      removeFrom(target.secrets, zf); this.discard.push(zf);
+      this.log(`${target.name} 触发奥秘【蒸发】，${source.name} 的所有装备和奥秘被弃掉！`, 'good');
+      this.fx('secret', { playerId: target.id, label: '蒸发' });
+      const eq = [...Object.values(source.equips).filter(Boolean), ...(source.equips2 ? Object.values(source.equips2).filter(Boolean) : [])];
+      const secs = (source.secrets || []).splice(0);
+      secs.forEach((s) => { if (s.guhuoBy != null) s.guhuoBy = null; }); // 蛊惑置入的杀一并弃掉
+      const strip = [...eq, ...secs];
+      if (strip.length) this.discardCards(source, strip);
+      this.changed();
+      await this.pause(360);
+    }
+    // 以眼还眼（奥秘）：受到伤害后对来源造成等量强制伤害
     const eye = target.secrets?.find((s) => s.kind === 'yiyanhuanyan');
     if (eye && source && source !== target && source.alive) {
       removeFrom(target.secrets, eye); this.discard.push(eye);
-      this.log(`${target.name} 触发奥秘【以眼还眼】，反弹 ${amount} 点伤害！`, 'good');
+      this.log(`${target.name} 触发奥秘【以眼还眼】，反弹 ${amount} 点强制伤害！`, 'good');
       this.fx('secret', { playerId: target.id, label: '以眼还眼' });
       await this.dealDamage({ source: target, target: source, amount, nature: 'reflect' });
-    }
-    // 能量虹吸（奥秘）：受到伤害后摸两张
-    const xn = target.alive && target.secrets?.find((s) => s.kind === 'xuneng');
-    if (xn) {
-      removeFrom(target.secrets, xn); this.discard.push(xn);
-      this.log(`${target.name} 触发奥秘【能量虹吸】，摸两张牌。`, 'good');
-      this.fx('secret', { playerId: target.id, label: '能量虹吸' });
-      this.drawCards(target, 2);
     }
     // 世界树嫩枝：你对一名角色造成伤害后，令其回复3点体力
     if (!this.over && source && source.alive && target.alive) {
@@ -1025,6 +1023,18 @@ export class GameEngine {
         return;
       }
     }
+    // 诈死（奥秘）：免于死亡结算，当前回合结束后以1点体力复活（保留所有牌，不触发击杀/死亡技与奖惩）
+    const feign = player.secrets?.find((s) => s.kind === 'zhasi');
+    if (feign) {
+      removeFrom(player.secrets, feign); this.discard.push(feign);
+      this.fx('secret', { playerId: player.id, label: '诈死' });
+      player.alive = false;
+      player.feignDeath = true;
+      this.log(`💀 ${player.name}（${player.general?.name}） 倒下了……`, 'death');
+      this.changed();
+      await this.pause(600);
+      return;
+    }
     player.alive = false;
     this.log(`💀 ${player.name}（${player.general?.name}） 阵亡。身份：${this._identityText(player)}`, 'death');
     this.changed();
@@ -1072,8 +1082,40 @@ export class GameEngine {
   }
 
   // ====================== 胜负判定 ======================
+  // 诈死复活（当前回合结束后调用）；复活后补一次胜负判定（期间被挂起）
+  _reviveFeigned() {
+    let any = false;
+    for (const p of this.players) {
+      if (!p.feignDeath) continue;
+      p.feignDeath = false; p.alive = true; p.hp = 1; any = true;
+      this.log(`✨ ${p.name} 竟是【诈死】！以1点体力复活。`, 'win');
+    }
+    if (any) { this.changed(); this._checkWin(); }
+  }
+
+  // 邪恶计谋（奥秘）：累计每名角色使用锦囊/奥秘牌数；自奥秘放置起某角色使用满2张时触发
+  async noteSpellUse(user) {
+    this._spellUses = this._spellUses || {};
+    this._spellUses[user.id] = (this._spellUses[user.id] || 0) + 1;
+    for (const p of this.players) {
+      if (!p.alive || !p.secrets?.length) continue;
+      for (const s of [...p.secrets]) {
+        if (s.kind !== 'xieejimou') continue;
+        if (this._spellUses[user.id] - ((s.xiejiBase || {})[user.id] || 0) < 2) continue;
+        removeFrom(p.secrets, s); this.discard.push(s);
+        this.fx('secret', { playerId: p.id, label: '邪恶计谋' });
+        this.log(`${p.name} 触发奥秘【邪恶计谋】，抽三张牌！`, 'good');
+        this.drawCards(p, 3);
+        this.changed();
+        await this.pause(320);
+      }
+    }
+  }
+
   _checkWin() {
     if (this.over) return;
+    // 有角色诈死待复活时挂起胜负判定，复活后（_reviveFeigned）补判
+    if (this.players.some((p) => p.feignDeath)) return;
     const alive = this.alivePlayers;
     if (this.mode === MODE.ZHANGZHENG) {
       const lord = this.players.find((p) => p.identity === IDENTITY.LORD);

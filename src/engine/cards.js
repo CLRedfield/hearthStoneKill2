@@ -100,14 +100,11 @@ export const CARD_DEFS = {
   esinoshield: { name: '埃辛诺斯盾', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, immuneInstances: 2, desc: '免疫2次伤害，然后损坏。' },
   robe: { name: '防护长袍', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, blockDirectional: true, desc: '其他角色的指向性锦囊牌无法指定你。' },
   // ========== 奥秘（盖放，触发后弃置） ==========
-  bingdongxianjing: { name: '冰冻陷阱', type: CARD_TYPE.SECRET, on: 'sha', desc: '奥秘：当你成为【杀】的目标时，取消该【杀】并冻结攻击者2张手牌。' },
-  baozhaxianjing: { name: '爆炸陷阱', type: CARD_TYPE.SECRET, on: 'sha', desc: '奥秘：当你成为【杀】的目标时，对攻击者造成2点伤害。' },
-  duoshanmijing: { name: '躲闪', type: CARD_TYPE.SECRET, on: 'sha', desc: '奥秘：当你成为【杀】的目标时，取消该【杀】，攻击者改为对随机另一名角色使用它。' },
-  binkuai: { name: '寒冰屏障', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：当你将受到伤害时，防止此次伤害。' },
-  yiyanhuanyan: { name: '以眼还眼', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：当你受到伤害后，对伤害来源造成等量伤害。' },
-  aoshupingzhang: { name: '奥术屏障', type: CARD_TYPE.SECRET, on: 'trick', desc: '奥秘：当你成为其他角色锦囊牌的目标时，该牌对你无效。' },
-  minjie: { name: '闪避领域', type: CARD_TYPE.SECRET, on: 'sha', desc: '奥秘：当你成为【杀】的目标时，取消该【杀】（视为闪避）。' },
-  xuneng: { name: '能量虹吸', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：当你受到伤害后，摸两张牌。' },
+  zhengfa: { name: '蒸发', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：一名角色对你造成伤害后，弃掉其所有装备和奥秘。' },
+  zhasi: { name: '诈死', type: CARD_TYPE.SECRET, on: 'death', desc: '奥秘：当你死亡时，你在当前回合结束后复活并具有1点生命。' },
+  yiyanhuanyan: { name: '以眼还眼', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：一名角色对你造成伤害后，对其造成等量强制伤害。' },
+  xieejimou: { name: '邪恶计谋', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用了2张锦囊牌或奥秘牌后，你抽3张牌。' },
+  wudao: { name: '误导', type: CARD_TYPE.SECRET, on: 'trickTarget', desc: '奥秘：1张非范围锦囊牌指定你时，改为指定另外一名角色。' },
 
   // ========== 补全·武器 ==========
   wanqian: { name: '万千箴言剑', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 5, seventhOnly: true, discardAllOnTarget: true, desc: '仅能作为你本回合打出的第7张牌使用。当你的【杀】指定一名角色时，弃掉其所有牌。' },
@@ -251,9 +248,12 @@ const HS_DECK_LIST = [
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),
-  // 奥秘（全 8 种，每种 1 张）
-  ...genN('bingdongxianjing', 1), ...genN('baozhaxianjing', 1), ...genN('duoshanmijing', 1), ...genN('minjie', 1),
-  ...genN('binkuai', 1), ...genN('yiyanhuanyan', 1), ...genN('xuneng', 1), ...genN('aoshupingzhang', 1),
+  // 奥秘（全 5 种，每种 1 张，花色点数与卡面一致）
+  { kind: 'zhengfa', suit: 'heart', number: 8 },
+  { kind: 'zhasi', suit: 'club', number: 11 },
+  { kind: 'yiyanhuanyan', suit: 'diamond', number: 7 },
+  { kind: 'xieejimou', suit: 'club', number: 9 },
+  { kind: 'wudao', suit: 'spade', number: 9 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）

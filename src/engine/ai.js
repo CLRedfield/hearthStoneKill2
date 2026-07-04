@@ -248,7 +248,7 @@ export class AIAgent {
     // 1.5) 设置奥秘（炉石杀）：威胁越大越倾向铺防御性奥秘，且每名角色已有的奥秘不重复
     const secretCards = hand.filter((c) => CARD_DEFS[c.kind]?.type === 'secret' && !c.frozen && !(player.secrets || []).some((s) => s.kind === c.kind));
     if (secretCards.length) {
-      const defensive = ['binkuai', 'duoshanmijing', 'yiyanhuanyan']; // 防御/反制类
+      const defensive = ['zhasi', 'yiyanhuanyan', 'zhengfa']; // 防御/反制类
       secretCards.sort((a, b) => (defensive.includes(b.kind) ? 1 : 0) - (defensive.includes(a.kind) ? 1 : 0));
       // 残血时一定铺；否则有较多手牌或被多敌包夹时铺
       const threatened = player.hp <= 2 || enemies.length >= 2;

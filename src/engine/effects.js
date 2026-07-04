@@ -149,6 +149,8 @@ async function _resolveCard(engine, ctx) {
   // 奥秘（盖放，不公开名称）
   if (def.type === CARD_TYPE.SECRET) {
     if (user.secrets.some((s) => s.kind === card.kind)) { user.hand.push(card); engine.log(`${user.name} 已有相同奥秘。`, 'system'); return; }
+    await engine.noteSpellUse(user); // 先计数（可触发他人【邪恶计谋】），再放置并记快照
+    card.xiejiBase = { ...(engine._spellUses || {}) };
     user.secrets.push(card);
     engine.log(`${user.name} 设置了一个奥秘。`, 'play');
     engine.fx('use', { userId: user.id, card: { name: '奥秘', kind: 'secret', type: 'secret' }, targetIds: [user.id] });
@@ -173,6 +175,9 @@ async function _resolveCard(engine, ctx) {
       tgt = selfTarget ? user : targets[0];
     }
     if (!tgt) { engine.toDiscard([card]); return; }
+    await engine.noteSpellUse(user); // 延时锦囊计数（邪恶计谋）
+    // 误导（奥秘）：非范围锦囊指定他人时可改目标
+    if (tgt !== user) tgt = await fireMisdirect(engine, user, tgt, card);
     if (tgt.judge.some((j) => j.kind === card.kind)) { engine.toDiscard([card]); return; } // 防重复同名
     // 无懈可击 / 法术反制：可抵消对他人贴放的延时锦囊（对自己贴放的闪电/瓶装闪电不触发）
     if (tgt !== user && await nullified(engine, card, user, tgt)) { engine.toDiscard([card]); engine.log(`【${card.name}】被抵消。`, 'good'); return; }
@@ -204,7 +209,7 @@ async function _resolveCard(engine, ctx) {
   // 全局计数（米达·重组 / 刺骨“此前用过其他牌”）
   const role = cardAs(card);
   if (def.type === CARD_TYPE.BASIC) engine.usedBasic = (engine.usedBasic || 0) + 1;
-  if (def.type === CARD_TYPE.TRICK) engine.usedTrick = (engine.usedTrick || 0) + 1;
+  if (def.type === CARD_TYPE.TRICK) { engine.usedTrick = (engine.usedTrick || 0) + 1; await engine.noteSpellUse(user); } // 锦囊计数（邪恶计谋）
   // 过载
   if (def.overload) user.overload = (user.overload || 0) + def.overload;
 
@@ -255,6 +260,11 @@ async function _resolveCard(engine, ctx) {
     return;
   }
   user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
+  // 误导（奥秘）：非范围指向性锦囊指定他人时，可改为指定另外一名角色
+  if (def.type === CARD_TYPE.TRICK && targets.length === 1 && targets[0]
+    && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai'].includes(behaves)) {
+    targets[0] = await fireMisdirect(engine, user, targets[0], card);
+  }
   switch (behaves) {
     case 'wuzhong':
       engine.toDiscard([card]);
@@ -530,41 +540,32 @@ async function useDrawnImmediately(engine, user, card) {
   if (role === 'sha' && user.alive) user.flags.shaUsed = beforeSha; // 立即使用的【杀】不占用正常出杀次数
 }
 
-async function fireShaSecrets(engine, target, attacker, card) {
-  let canceled = false;
-  for (const s of [...(target.secrets || [])]) {
-    if (engine.over) break;
-    if (s.guhuoBy != null) continue; // 蛊惑·杀置于奥秘区，但不是触发型奥秘，跳过
-    if (s.kind === 'bingdongxianjing') {
-      removeFrom(target.secrets, s); engine.discard.push(s);
-      engine.log(`${target.name} 触发奥秘【冰冻陷阱】！`, 'good');
-      engine.fx('secret', { playerId: target.id, label: '冰冻陷阱' });
-      engine.freezeHand(attacker, 2);
-      canceled = true;
-    } else if (s.kind === 'baozhaxianjing') {
-      removeFrom(target.secrets, s); engine.discard.push(s);
-      engine.log(`${target.name} 触发奥秘【爆炸陷阱】！`, 'good');
-      engine.fx('secret', { playerId: target.id, label: '爆炸陷阱' });
-      await engine.dealDamage({ source: target, target: attacker, amount: 2 });
-    } else if (s.kind === 'minjie') {
-      removeFrom(target.secrets, s); engine.discard.push(s);
-      engine.log(`${target.name} 触发奥秘【闪避领域】，避开【杀】！`, 'good');
-      engine.fx('secret', { playerId: target.id, label: '闪避领域' });
-      canceled = true;
-    } else if (s.kind === 'duoshanmijing') {
-      removeFrom(target.secrets, s); engine.discard.push(s);
-      engine.log(`${target.name} 触发奥秘【躲闪】！`, 'good');
-      engine.fx('secret', { playerId: target.id, label: '躲闪' });
-      canceled = true;
-      const others = engine.alivePlayers.filter((p) => p !== target && p !== attacker);
-      const pool = others.length ? others : engine.alivePlayers.filter((p) => p !== target);
-      const nt = pool[Math.floor(Math.random() * pool.length)];
-      if (nt) { engine.log(`【杀】被转移到 ${nt.name}！`, 'play'); await resolveShaOn(engine, attacker, nt, card); }
-    }
-    engine.changed();
-    await engine.pause(300);
+// 误导（奥秘）：非范围锦囊指定其拥有者时，改为指定另外一名角色（拥有者选择；AI 优先甩回使用者）
+export async function fireMisdirect(engine, user, target, card) {
+  if (!target || target === user || card._misdirected) return target;
+  const sec = target.secrets?.find((s) => s.kind === 'wudao');
+  if (!sec) return target;
+  const cands = engine.alivePlayers.filter((p) => p !== target);
+  if (!cands.length) return target;
+  card._misdirected = true; // 防止两名【误导】拥有者之间无限弹射
+  removeFrom(target.secrets, sec); engine.discard.push(sec);
+  engine.fx('secret', { playerId: target.id, label: '误导' });
+  let nt = null;
+  if (engine.agentOf(target)?.kind !== 'ai') {
+    const r = await engine.ask(target, {
+      type: REQ.CHOOSE_OPTION, title: `误导：将【${card.name}】改为指定另外一名角色`,
+      options: cands.map((p) => ({ value: p.id, label: p.name })),
+    });
+    nt = cands.find((p) => p.id === r?.value) || null;
   }
-  return { canceled };
+  if (!nt) {
+    if (!engine.isAlly(target, user)) nt = user; // 甩回使用者
+    else { const es = cands.filter((p) => !engine.isAlly(target, p)); nt = es[Math.floor(Math.random() * es.length)] || cands[0]; }
+  }
+  engine.log(`${target.name} 触发奥秘【误导】，【${card.name}】改为指定 ${nt.name}！`, 'good');
+  engine.changed();
+  await engine.pause(320);
+  return nt;
 }
 
 async function resolveShaOn(engine, user, target, card) {
@@ -589,11 +590,6 @@ async function resolveShaOn(engine, user, target, card) {
   if (weaponsOf(user).some((w) => CARD_DEFS[w.kind]?.discardAllOnTarget) && target.alive && hasAnyCard(target)) {
     const all = [...target.hand, ...Object.values(target.equips).filter(Boolean), ...(target.equips2 ? Object.values(target.equips2).filter(Boolean) : []), ...target.judge];
     if (all.length) { engine.log(`${user.name} 的【万千箴言剑】弃掉 ${target.name} 的所有牌！`, 'play'); engine.discardCards(target, all); }
-  }
-  // 奥秘：成为【杀】目标时触发（冰冻陷阱可取消该杀）
-  if (target.secrets?.length) {
-    const sec = await fireShaSecrets(engine, target, user, card);
-    if (sec.canceled || !target.alive || !user.alive || engine.over) return;
   }
   // 雌雄双股剑：异性目标
   if (hasWeaponKind(user, 'cixiong') && target.gender !== user.gender && hasAnyCard(target)) {
@@ -1014,17 +1010,6 @@ export async function nullified(engine, card, byUser, targetPlayer) {
     if ((targetPlayer.skillState.huxinWuxie || 0) < cap) {
       targetPlayer.skillState.huxinWuxie = (targetPlayer.skillState.huxinWuxie || 0) + 1;
       engine.log(`${targetPlayer.name} 发动【护心】，凭空使用【法术反制】！`, 'good');
-      return true;
-    }
-  }
-  // 奥术屏障（奥秘）：其他角色的锦囊对你无效
-  if (targetPlayer && byUser && byUser !== targetPlayer) {
-    const sec = targetPlayer.secrets?.find((s) => s.kind === 'aoshupingzhang');
-    if (sec) {
-      removeFrom(targetPlayer.secrets, sec); engine.discard.push(sec);
-      engine.log(`${targetPlayer.name} 触发奥秘【奥术屏障】，锦囊无效！`, 'good');
-      engine.fx('secret', { playerId: targetPlayer.id, label: '奥术屏障' });
-      await engine.pause(320);
       return true;
     }
   }
