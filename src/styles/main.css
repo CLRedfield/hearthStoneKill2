@@ -99,6 +99,16 @@ body {
 .overlay-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
 .choose-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .choose-item { min-width: 110px; }
+/* 选人选项：昵称 + 武将 · 体力（势力色描边） */
+.choose-player { display: flex; flex-direction: column; align-items: center; gap: 3px; border-left: 3px solid var(--fac, var(--gold)); padding: 8px 14px; }
+.choose-player .cp-name { font-weight: 700; }
+.choose-player .cp-info { display: flex; gap: 8px; font-size: 12px; line-height: 1; opacity: .92; }
+.choose-player .cp-general { color: var(--fac, var(--gold)); }
+.choose-player .cp-hp { color: var(--red, #e05648); }
+/* 选牌选项：花色点数 + 牌名 */
+.choose-cardopt { display: flex; align-items: center; gap: 7px; }
+.choose-cardopt .cc-corner { font-weight: 700; }
+.choose-cardopt.red .cc-corner { color: var(--red, #e05648); }
 
 /* Toast */
 .toast {

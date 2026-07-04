@@ -44,9 +44,34 @@ export function chooseDialog(title, options, { closable = false } = {}) {
     const body = el('div', { class: 'choose-grid' });
     let ov;
     options.forEach((o) => {
+      const onclick = () => { ov.close(); resolve(o.value); };
+      if (o.player) {
+        // 选人：显示 昵称 + 武将 + 体力（势力色描边）
+        const pi = o.player;
+        const fac = FACTION_COLOR[pi.faction] || 'var(--gold)';
+        body.appendChild(el('button', { class: 'choose-item btn choose-player', style: { '--fac': fac }, onclick }, [
+          el('span', { class: 'cp-name', text: o.label || pi.name }),
+          el('span', { class: 'cp-info' }, [
+            el('span', { class: 'cp-general', text: pi.general || '未知' }),
+            el('span', { class: 'cp-hp', text: `♥${pi.hp}/${pi.maxHp}` }),
+          ]),
+        ]));
+        return;
+      }
+      if (o.card) {
+        // 选牌：显示 花色点数 + 牌名（红/黑）；字母点数附带数字（如 Q(12)，便于比点/凑数）
+        const c = o.card;
+        const rl = String(rankLabel(c.number));
+        const corner = `${SUIT_SYMBOL[c.suit] || ''}${rl}${/^[AJQK]$/.test(rl) && c.number != null ? `(${c.number})` : ''}`;
+        body.appendChild(el('button', { class: `choose-item btn choose-cardopt ${c.red ? 'red' : 'black'}`, onclick }, [
+          el('span', { class: 'cc-corner', text: corner }),
+          el('span', { class: 'cc-name', text: c.name }),
+        ]));
+        return;
+      }
       body.appendChild(el('button', {
         class: 'choose-item btn', html: o.html || undefined, text: o.html ? undefined : o.label,
-        onclick: () => { ov.close(); resolve(o.value); },
+        onclick,
       }));
     });
     const buttons = closable ? [{ label: '取消', onClick: () => { ov.close(); resolve(null); } }] : [];

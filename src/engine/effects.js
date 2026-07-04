@@ -125,7 +125,19 @@ async function _resolveCard(engine, ctx) {
     if (def.equipBackstab) { // 弑君：凭空背刺一名角色
       const tgts = engine.alivePlayers.filter((p) => p !== user);
       if (tgts.length) {
-        const t = tgts[Math.floor(Math.random() * tgts.length)];
+        let t = null;
+        if (engine.agentOf(user)?.kind !== 'ai') {
+          const r = await engine.ask(user, {
+            type: REQ.CHOOSE_OPTION, title: '弑君：视为凭空使用【背刺】，选择目标',
+            options: tgts.map((p) => ({ value: p.id, label: p.name })),
+          });
+          t = tgts.find((p) => p.id === r?.value) || null;
+        }
+        if (!t) {
+          const enemies = tgts.filter((p) => !engine.isAlly(user, p));
+          const pool = enemies.length ? enemies : tgts;
+          t = pool[Math.floor(Math.random() * pool.length)];
+        }
         const dmg = t.hp >= t.maxHp ? 2 : 1;
         engine.log(`${user.name} 装备【弑君】，凭空背刺 ${t.name}！`, 'play');
         await engine.dealDamage({ source: user, target: t, amount: dmg, card });
@@ -328,7 +340,15 @@ async function playKangkai(engine, user, target, card) {
   if (!target) { engine.drawCards(user, 3); return; }
   if (await nullified(engine, card, user, target)) { engine.drawCards(user, 3); return; }
   if (user.hand.length) {
-    const give = randomHand(user);
+    let give = null;
+    if (engine.agentOf(user)?.kind !== 'ai') {
+      const r = await engine.ask(user, {
+        type: REQ.CHOOSE_OPTION, title: `慷慨大方：选择交给 ${target.name} 的一张手牌`,
+        options: user.hand.map((c) => ({ value: c.id, label: `${c.name}(${c.number})`, card: c })),
+      });
+      give = user.hand.find((c) => c.id === r?.value) || null;
+    }
+    if (!give) give = randomHand(user);
     removeFrom(user.hand, give);
     target.hand.push(give);
     engine.log(`${user.name} 慷慨地将一张牌交给 ${target.name}。`, 'good');
@@ -674,7 +694,9 @@ async function resolveShaOn(engine, user, target, card) {
     if (resp?.value === 'yes') {
       for (let i = 0; i < 2; i++) {
         if (!hasAnyCard(target)) break;
-        engine.discardCards(target, [randomCardOf(target)]);
+        const picked = await chooseTargetCard(engine, user, target, `寒冰剑：弃置 ${target.name} 的一张牌（第 ${i + 1}/2 张）`, true);
+        if (!picked) break;
+        engine.discardCards(target, [picked]);
       }
       return;
     }
@@ -698,7 +720,19 @@ async function resolveShaOn(engine, user, target, card) {
   // 寒冰箭等：命中后冻结
   if (def.freeze && target.alive) engine.freezeHand(target, def.freeze);
   // 灵魂之火：命中后你弃置一张牌（法力代价）
-  if (def.selfDiscardOnHit) { const own = [...user.hand, ...Object.values(user.equips).filter(Boolean)]; if (own.length) { engine.discardCards(user, [own[Math.floor(Math.random() * own.length)]]); engine.log(`${user.name} 因【灵魂之火】弃置一张牌。`); } }
+  if (def.selfDiscardOnHit) {
+    const own = [...user.hand, ...Object.values(user.equips).filter(Boolean)];
+    if (own.length) {
+      let c = null;
+      if (engine.agentOf(user)?.kind !== 'ai') {
+        const r = await engine.ask(user, { type: REQ.DISCARD_CARDS, count: 1, from: 'all', title: '灵魂之火：弃置一张牌' });
+        c = (r?.cards || []).map((x) => resolveCardRef(user, x)).filter(Boolean)[0] || null;
+      }
+      if (!c) c = own[Math.floor(Math.random() * own.length)];
+      engine.discardCards(user, [c]);
+      engine.log(`${user.name} 因【灵魂之火】弃置一张牌。`);
+    }
+  }
   // 世界树嫩枝（任意伤害后回血）在 game.dealDamage 中统一处理
 
   // 麒麟弓：造成伤害后弃置目标坐骑

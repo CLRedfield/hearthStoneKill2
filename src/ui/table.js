@@ -990,7 +990,8 @@ export class HumanAgent {
           return { value: gid };
         }
         const value = await chooseDialog(req.title || '请选择', req.options.map((o) => ({
-          value: o.value, label: o.label || o.general?.name || (o.card ? `${o.card.name}` : String(o.value)),
+          value: o.value, card: o.card, player: o.player,
+          label: o.label || o.general?.name || (o.card ? `${o.card.name}` : String(o.value)),
         })));
         return { value };
       }

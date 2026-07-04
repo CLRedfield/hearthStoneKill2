@@ -1322,8 +1322,13 @@ export const HS_SKILLS = {
       player.flags.lijian2Used = true;
       const tpool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
       if (!tpool.length) { engine.log(`${t.name} 没有牌，【利箭】无效。`, 'system'); return; }
-      // 标：目标弃1张，取其点数 m
-      const mark = rand(tpool);
+      // 标：目标弃1张（自选），取其点数 m
+      let mark = null;
+      if (engine.agentOf(t)?.kind !== 'ai') {
+        const r = await engine.ask(t, { type: REQ.DISCARD_CARDS, count: 1, from: 'all', title: `利箭：弃置一张牌作为“标”` });
+        mark = (r?.cards || []).map((x) => findOnPlayer(t, x)).filter(Boolean)[0] || null;
+      }
+      if (!mark) mark = rand(tpool);
       engine.discardCards(t, [mark]);
       const m = mark.number || 1;
       engine.log(`${player.name}【利箭】：${t.name} 弃置“标”【${mark.name}】（点数 ${m}）。`, 'play');

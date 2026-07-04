@@ -45,6 +45,17 @@ export class GameEngine {
   async ask(player, req) {
     const agent = this.agentOf(player);
     if (!agent) return null;
+    // 选项值为玩家 id 时，附带武将/体力信息（纯数据，联机可序列化；UI 据此渲染选人卡片）
+    if (req.type === REQ.CHOOSE_OPTION && req.kind !== 'general' && Array.isArray(req.options)) {
+      req = {
+        ...req,
+        options: req.options.map((o) => {
+          if (!o || o.player || typeof o.value !== 'string') return o;
+          const pl = this.playerById(o.value);
+          return pl ? { ...o, player: { name: pl.name, general: pl.general?.name || '', hp: pl.hp, maxHp: pl.maxHp, faction: pl.faction } } : o;
+        }),
+      };
+    }
     return await agent.respond({ ...req, player, engine: this });
   }
 
