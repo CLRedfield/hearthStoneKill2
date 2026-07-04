@@ -110,6 +110,11 @@ export const CARD_DEFS = {
   binkuai: { name: '寒冰屏障', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：当你受到致命伤害时，免疫此伤害，并在你回合结束前获得免疫。' },
   feigongping: { name: '非公平游戏', type: CARD_TYPE.SECRET, on: 'round', desc: '奥秘：你在一轮中没有受到伤害，抽4张牌。' },
   fangyujuzhen: { name: '防御矩阵', type: CARD_TYPE.SECRET, on: 'damage', desc: '奥秘：一名角色被普通伤害攻击时，使其免疫此次伤害并恢复1点生命。' },
+  fashugongming: { name: '法术共鸣', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用锦囊牌或奥秘牌时，使这张牌失效并获得这张牌。' },
+  dubiaoxianjing: { name: '毒镖陷阱', type: CARD_TYPE.SECRET, on: 'skill', desc: '奥秘：一名角色发动技能后，对其造成1点普通伤害2次。' },
+  chaoxi: { name: '抄袭', type: CARD_TYPE.SECRET, on: 'turnEnd', desc: '奥秘：一名角色回合结束后，获得其在此回合所有使用的牌（包括装备和奥秘）。' },
+  bushuxianjing: { name: '捕鼠陷阱', type: CARD_TYPE.SECRET, on: 'cards', desc: '奥秘：当一名角色在自己的回合中累计使用3张牌时，你抽1张牌，并使其获得"过载2"。' },
+  bingshuangxianjing: { name: '冰霜陷阱', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用锦囊或奥秘时，冻结此牌，并再冻结其2张牌，这些牌在其下回合结束后解冻。' },
 
   // ========== 补全·武器 ==========
   wanqian: { name: '万千箴言剑', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 5, seventhOnly: true, discardAllOnTarget: true, desc: '仅能作为你本回合打出的第7张牌使用。当你的【杀】指定一名角色时，弃掉其所有牌。' },
@@ -253,7 +258,7 @@ const HS_DECK_LIST = [
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),
-  // 奥秘（全 10 种，每种 1 张，花色点数与卡面一致）
+  // 奥秘（全 15 种，每种 1 张，花色点数与卡面一致）
   { kind: 'zhengfa', suit: 'heart', number: 8 },
   { kind: 'zhasi', suit: 'club', number: 11 },
   { kind: 'yiyanhuanyan', suit: 'diamond', number: 7 },
@@ -264,6 +269,11 @@ const HS_DECK_LIST = [
   { kind: 'binkuai', suit: 'heart', number: 6 },
   { kind: 'feigongping', suit: 'heart', number: 10 },
   { kind: 'fangyujuzhen', suit: 'diamond', number: 8 },
+  { kind: 'fashugongming', suit: 'heart', number: 9 },
+  { kind: 'dubiaoxianjing', suit: 'spade', number: 7 },
+  { kind: 'chaoxi', suit: 'club', number: 7 },
+  { kind: 'bushuxianjing', suit: 'spade', number: 11 },
+  { kind: 'bingshuangxianjing', suit: 'spade', number: 5 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）

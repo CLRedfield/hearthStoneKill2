@@ -404,7 +404,8 @@ export class GameEngine {
       if (p.alive) {
         await this.runTurn(p);
       }
-      this._reviveFeigned(); // 诈死：当前回合结束后复活
+      await this._fireChaoxi(p); // 抄袭：回合结束后收缴其本回合使用过的牌
+      this._reviveFeigned();     // 诈死：当前回合结束后复活
       if (this.over) break;
       this._advanceTurn();
     }
@@ -427,6 +428,7 @@ export class GameEngine {
     this.turnOwner = player;       // 暗影步：记录本回合进入弃牌堆的牌
     this.turnRecallable = [];
     this.skipToEnd = false;        // 清算（奥秘）：置为 true 后本回合直接进入结束阶段
+    this.turnUsedCards = [];       // 抄袭（奥秘）：记录回合拥有者本回合使用过的实体牌
     // 每回合一次的技能状态清空
     player.skillState.zhihengUsed = false;
     player.skillState.qingnangUsed = false;
@@ -489,7 +491,8 @@ export class GameEngine {
       else { removeFrom(player.hand, c); freezer.hand.push(c); this.log(`${player.name} 弃置该牌交给 ${freezer.name}（奥数）。`); this.changed(); }
     }
     let thawed = 0;
-    player.hand.forEach((c) => { if (c.frozen) { c.frozen = false; thawed++; } });
+    // 冰霜陷阱冻结的牌（frostTrapTurns>0）不走常规解冻，须等其下回合结束
+    player.hand.forEach((c) => { if (c.frozen && !(c.frostTrapTurns > 0)) { c.frozen = false; thawed++; } });
     if (thawed) this.changed();
   }
 
@@ -738,6 +741,17 @@ export class GameEngine {
 
   async _handleActiveSkill(player, move) {
     await triggerSkill(this, 'active:' + move.skill, { player, move });
+    // 毒镖陷阱（奥秘）：一名角色发动技能后，对其造成1点普通伤害2次
+    const holder = this.players.find((p) => p.alive && p !== player && p.secrets?.some((s) => s.kind === 'dubiaoxianjing'));
+    if (holder && player.alive && !this.over) {
+      const s = holder.secrets.find((x) => x.kind === 'dubiaoxianjing');
+      removeFrom(holder.secrets, s); this.discard.push(s);
+      this.fx('secret', { playerId: holder.id, label: '毒镖陷阱' });
+      this.log(`${holder.name} 触发奥秘【毒镖陷阱】，${player.name} 依次受到2次1点伤害！`, 'good');
+      for (let i = 0; i < 2 && player.alive && !this.over; i++) {
+        await this.dealDamage({ source: holder, target: player, amount: 1 });
+      }
+    }
   }
 
   // 手牌上限基数：三国杀=体力；炉石杀=体力+1
@@ -785,6 +799,14 @@ export class GameEngine {
     // 淡云圆盾：回合结束起获得一次免疫
     if (hasArmorKind(player, 'cloudshield')) player.cloudReady = true;
     delete player.flags.immuneAllTurn; // 命运之轮：免疫只持续到本回合结束
+    // 冰霜陷阱：被冻结的牌在其下回合结束后解冻（触发当回合结束记 1，下回合结束归 0 解冻）
+    let frostReleased = 0;
+    player.hand.forEach((c) => {
+      if (!(c.frostTrapTurns > 0)) return;
+      c.frostTrapTurns -= 1;
+      if (c.frostTrapTurns === 0) { c.frozen = false; frostReleased++; }
+    });
+    if (frostReleased) { this.log(`${player.name} 的 ${frostReleased} 张牌解冻（冰霜陷阱）。`); this.changed(); }
     await triggerSkill(this, 'endPhase', { player });
     await triggerSkill(this, 'anyEndPhase', { turnPlayer: player });
     await this.pause(200);
@@ -1167,6 +1189,42 @@ export class GameEngine {
       this.log(`✨ ${p.name} 竟是【诈死】！以1点体力复活。`, 'win');
     }
     if (any) { this.changed(); this._checkWin(); }
+  }
+
+  // 抄袭（奥秘）：一名角色回合结束后，持有者获得其本回合使用过的牌（从弃牌堆/装备区/奥秘区/判定区收缴）
+  async _fireChaoxi(turnPlayer) {
+    if (this.over || !turnPlayer || !this.turnUsedCards?.length) return;
+    const holder = this.players.find((p) => p.alive && p !== turnPlayer && p.secrets?.some((s) => s.kind === 'chaoxi'));
+    if (!holder) return;
+    const s = holder.secrets.find((x) => x.kind === 'chaoxi');
+    removeFrom(holder.secrets, s); this.discard.push(s);
+    this.fx('secret', { playerId: holder.id, label: '抄袭' });
+    const seen = new Set(); const got = [];
+    for (const c of this.turnUsedCards) {
+      if (!c || seen.has(c.id)) continue;
+      seen.add(c.id);
+      if (removeFrom(this.discard, c)) { got.push(c); continue; }
+      let found = false;
+      for (const p of this.players) {
+        if (removeFrom(p.secrets || [], c)) { if (c.guhuoBy != null) c.guhuoBy = null; found = true; break; }
+        let hit = false;
+        for (const slot of Object.keys(p.equips)) { if (p.equips[slot] === c) { p.equips[slot] = null; hit = true; break; } }
+        if (!hit && p.equips2) { for (const slot of Object.keys(p.equips2)) { if (p.equips2[slot] === c) { p.equips2[slot] = null; hit = true; break; } } }
+        if (!hit) { const ji = p.judge.indexOf(c); if (ji >= 0) { p.judge.splice(ji, 1); hit = true; } }
+        if (hit) { found = true; break; }
+      }
+      if (found) got.push(c);
+    }
+    this.turnUsedCards = [];
+    if (got.length) {
+      got.forEach((c) => { c.frozen = false; c.frostTrapTurns = 0; });
+      holder.hand.push(...got);
+      this.log(`${holder.name} 触发奥秘【抄袭】，获得 ${turnPlayer.name} 本回合使用的 ${got.length} 张牌！`, 'good');
+    } else {
+      this.log(`${holder.name} 触发奥秘【抄袭】，但没有可获得的牌。`, 'system');
+    }
+    this.changed();
+    await this.pause(360);
   }
 
   // 邪恶计谋（奥秘）：累计每名角色使用锦囊/奥秘牌数；自奥秘放置起某角色使用满2张时触发

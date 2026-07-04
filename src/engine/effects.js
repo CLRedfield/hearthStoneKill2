@@ -111,8 +111,68 @@ export async function resolveCard(engine, ctx) {
   // 记录当前结算者：其使用/打出后进入弃牌堆的牌可被【低吼】劫走（嵌套时保存恢复）
   const _prevActor = engine._actingUser;
   engine._actingUser = ctx.user;
-  try { return await _resolveCard(engine, ctx); }
+  // 抄袭（奥秘）：记录回合拥有者本回合使用过的实体牌
+  if (engine.turnOwner === ctx.user && ctx.card) {
+    const reals = ctx.card.virtual ? (ctx.card.sourceCards || []) : [ctx.card];
+    (engine.turnUsedCards = engine.turnUsedCards || []).push(...reals);
+  }
+  let out;
+  try { out = await _resolveCard(engine, ctx); }
   finally { engine._actingUser = _prevActor; }
+  await fireRatTrap(engine, ctx.user);
+  return out;
+}
+
+// 捕鼠陷阱（奥秘）：一名角色在自己的回合累计使用3张牌 → 持有者抽1，其获得过载2
+async function fireRatTrap(engine, user) {
+  if (engine.over || !user?.alive || engine.turnOwner !== user) return;
+  if ((user.flags?.cardsUsed || 0) < 3) return;
+  const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'bushuxianjing'));
+  if (!holder) return;
+  const s = holder.secrets.find((x) => x.kind === 'bushuxianjing');
+  removeFrom(holder.secrets, s); engine.discard.push(s);
+  engine.fx('secret', { playerId: holder.id, label: '捕鼠陷阱' });
+  user.overload = (user.overload || 0) + 2;
+  engine.log(`${holder.name} 触发奥秘【捕鼠陷阱】，抽一张牌，${user.name} 获得过载2！`, 'good');
+  engine.drawCards(holder, 1);
+  engine.changed();
+  await engine.pause(320);
+}
+
+// 法术共鸣（奥秘）：一名角色使用锦囊/奥秘牌时，使其失效并由持有者获得
+async function fireSpellResonance(engine, user, card) {
+  const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'fashugongming'));
+  if (!holder) return false;
+  const s = holder.secrets.find((x) => x.kind === 'fashugongming');
+  removeFrom(holder.secrets, s); engine.discard.push(s);
+  engine.fx('secret', { playerId: holder.id, label: '法术共鸣' });
+  const reals = card.virtual ? (card.sourceCards || []) : [card];
+  reals.forEach((c) => holder.hand.push(c));
+  engine.log(`${holder.name} 触发奥秘【法术共鸣】，【${card.name}】失效并被其获得！`, 'good');
+  engine.changed();
+  await engine.pause(320);
+  return true;
+}
+
+// 冰霜陷阱（奥秘）：一名角色使用锦囊/奥秘时，冻结此牌并再冻结其2张手牌；其下回合结束后解冻
+async function fireFrostTrap(engine, user, card) {
+  const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'bingshuangxianjing'));
+  if (!holder) return false;
+  if (hasSkill(user, 'binhuo')) return false; // 晨拥·冰火：手牌无法被冻结，陷阱不触发
+  const s = holder.secrets.find((x) => x.kind === 'bingshuangxianjing');
+  removeFrom(holder.secrets, s); engine.discard.push(s);
+  engine.fx('secret', { playerId: holder.id, label: '冰霜陷阱' });
+  const frost = (c) => { c.frozen = true; c.frostTrapTurns = 2; };
+  const reals = card.virtual ? (card.sourceCards || []) : [card];
+  reals.forEach((c) => { frost(c); user.hand.push(c); }); // 此牌失效，冻结返回手牌
+  const pool = user.hand.filter((c) => !c.frozen);
+  for (let i = 0; i < 2 && pool.length; i++) {
+    frost(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  engine.log(`${holder.name} 触发奥秘【冰霜陷阱】，【${card.name}】被冻结返回，另加冻其2张手牌（其下回合结束后解冻）！`, 'good');
+  engine.changed();
+  await engine.pause(320);
+  return true;
 }
 async function _resolveCard(engine, ctx) {
   const { user, card, targets } = ctx;
@@ -150,6 +210,8 @@ async function _resolveCard(engine, ctx) {
   if (def.type === CARD_TYPE.SECRET) {
     if (user.secrets.some((s) => s.kind === card.kind)) { user.hand.push(card); engine.log(`${user.name} 已有相同奥秘。`, 'system'); return; }
     await engine.noteSpellUse(user); // 先计数（可触发他人【邪恶计谋】），再放置并记快照
+    if (await fireSpellResonance(engine, user, card)) return;
+    if (await fireFrostTrap(engine, user, card)) return;
     card.xiejiBase = { ...(engine._spellUses || {}) };
     user.secrets.push(card);
     engine.log(`${user.name} 设置了一个奥秘。`, 'play');
@@ -176,6 +238,8 @@ async function _resolveCard(engine, ctx) {
     }
     if (!tgt) { engine.toDiscard([card]); return; }
     await engine.noteSpellUse(user); // 延时锦囊计数（邪恶计谋）
+    if (await fireSpellResonance(engine, user, card)) return;
+    if (await fireFrostTrap(engine, user, card)) return;
     // 误导（奥秘）：非范围锦囊指定他人时可改目标
     if (tgt !== user) tgt = await fireMisdirect(engine, user, tgt, card);
     if (tgt.judge.some((j) => j.kind === card.kind)) { engine.toDiscard([card]); return; } // 防重复同名
@@ -209,7 +273,12 @@ async function _resolveCard(engine, ctx) {
   // 全局计数（米达·重组 / 刺骨“此前用过其他牌”）
   const role = cardAs(card);
   if (def.type === CARD_TYPE.BASIC) engine.usedBasic = (engine.usedBasic || 0) + 1;
-  if (def.type === CARD_TYPE.TRICK) { engine.usedTrick = (engine.usedTrick || 0) + 1; await engine.noteSpellUse(user); } // 锦囊计数（邪恶计谋）
+  if (def.type === CARD_TYPE.TRICK) {
+    engine.usedTrick = (engine.usedTrick || 0) + 1;
+    await engine.noteSpellUse(user); // 锦囊计数（邪恶计谋）
+    if (await fireSpellResonance(engine, user, card)) return; // 法术共鸣：失效并被夺走
+    if (await fireFrostTrap(engine, user, card)) return;      // 冰霜陷阱：冻结返回手牌
+  }
   // 过载
   if (def.overload) user.overload = (user.overload || 0) + def.overload;
 
