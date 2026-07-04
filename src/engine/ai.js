@@ -21,6 +21,8 @@ export function cardValue(c) {
     nanman: 4, wanjian: 4, jiedao: 4, lebu: 4, shandian: 2,
     zhuge: 8, qinglong: 7, zhangba: 6, qilin: 6, cixiong: 6, guanshi: 6, fangtian: 6, hanbing: 6,
     bagua: 7, renwang: 7, chitu: 6, dawan: 5, zhuahuang: 6, chilu: 5, jueying: 5, zixing: 5,
+    jinguang: 8, huanxiang: 5, xuese: 5,
+    shangguhaojiao: 8, salatasi: 7, chaoxizhishi: 8, chaoxizhijie: 7,
   };
   return base[c.kind] ?? 4;
 }
@@ -260,6 +262,13 @@ export class AIAgent {
     // 2) 无中生有 / 奥术智慧
     const wz = handOfBeh('wuzhong');
     if (wz) return { type: 'play', card: wz, targets: [player] };
+    // 2.1) 沉落宝藏：号角/之石直接用；之戒在有可复刻的牌时用
+    for (const beh of ['haojiao', 'chaoshi']) {
+      const c = handOfBeh(beh);
+      if (c) return { type: 'play', card: c, targets: [player] };
+    }
+    const cj = handOfBeh('chaojie');
+    if (cj && player.lastSpell) return { type: 'play', card: cj, targets: [player] };
 
     // 3) 机会型主动技能
     const acts = activeSkillOptions(engine, player);

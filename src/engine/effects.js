@@ -1,7 +1,8 @@
 // ====================== 卡牌结算 ======================
-import { CARD_TYPE, REQ, EQUIP_SLOT, isBlack, isRed } from './constants.js';
-import { CARD_DEFS, cardAs } from './cards.js';
-import { hasSkill, triggerSkill } from './skills.js';
+import { CARD_TYPE, REQ, EQUIP_SLOT, SUIT_NAME, isBlack, isRed } from './constants.js';
+import { CARD_DEFS, cardAs, virtualCard } from './cards.js';
+import { hasSkill, triggerSkill, SKILLS } from './skills.js';
+import { getGeneral, generalPool } from './generals.js';
 import { removeFrom } from '../util.js';
 
 const defOf = (c) => CARD_DEFS[c.kind] || {};
@@ -120,10 +121,18 @@ export async function resolveCard(engine, ctx) {
     const reals = ctx.card.virtual ? (ctx.card.sourceCards || []) : [ctx.card];
     (engine.turnUsedCards = engine.turnUsedCards || []).push(...reals);
   }
+  // 潮汐之戒：记录你使用的上一张基本/锦囊牌（排除戒指本身与无懈）
+  if (ctx.card && ctx.card.kind !== 'chaoxizhijie' && cardAs(ctx.card) !== 'wuxie') {
+    const ty = CARD_DEFS[ctx.card.kind]?.type;
+    if (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) {
+      ctx.user.lastSpell = { kind: ctx.card.kind, suit: ctx.card.suit, number: ctx.card.number, red: ctx.card.red };
+    }
+  }
   let out;
   try { out = await _resolveCard(engine, ctx); }
   finally { engine._actingUser = _prevActor; }
   await fireRatTrap(engine, ctx.user);
+  await fireSarathas(engine, ctx.user, ctx.card);
   return out;
 }
 
@@ -208,6 +217,8 @@ async function _resolveCard(engine, ctx) {
     card._noResponse = true;
     engine.log(`【幻象】生效：【${card.name}】无法被响应！`, 'good');
   }
+  // 潮汐之戒等：自带"无法被响应"
+  if (def.noResponse) card._noResponse = true;
 
   // 装备牌
   if (def.type === CARD_TYPE.EQUIP) {
@@ -348,6 +359,7 @@ async function _resolveCard(engine, ctx) {
   if (role === 'tao') {
     await engine.recover(user, def.heal || 1); if (def.drawOnUse) engine.drawCards(user, def.drawOnUse);
     if (def.healAlly && targets[0] && targets[0] !== user && targets[0].alive) await engine.recover(targets[0], 1); // 联结治疗
+    if (def.bottomPeek) await peekBottomCards(engine, user, def.bottomPeek, card.name); // 金光闪耀
     engine.toDiscard([card]); user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
     await triggerSkill(engine, 'usedCard', { player: user, card });
     return;
@@ -393,6 +405,9 @@ async function _resolveCard(engine, ctx) {
     case 'zhaomingdan': await playZhaomingdan(engine, user, card); break;
     case 'anzhong': await playAnzhong(engine, user, targets[0], card); break;
     case 'zhenyan': await playZhenyan(engine, user, targets[0] || user, card); break;
+    case 'haojiao': await playHaojiao(engine, user, card); break;
+    case 'chaoshi': await playChaoshi(engine, user, card); break;
+    case 'chaojie': await playChaojie(engine, user, card); break;
     case 'hsjuedou': await playHsJuedou(engine, user, targets[0], card); break;
     case 'hengchong': {
       const victim = engine.playerById(ctx.options?.victim) || targets[1];
@@ -578,6 +593,136 @@ async function playAnzhong(engine, user, target, card) {
     engine.log(`连击！${user.name} 再弃掉 ${target.name} 的一张奥秘。`, 'play');
     engine.changed();
   }
+}
+
+// ---------- 金光闪耀：查看牌库底n张，逐张置于牌库顶或弃牌堆（探底式交互） ----------
+async function peekBottomCards(engine, user, n, fromName = '金光闪耀') {
+  engine._refillDeck();
+  if (!engine.deck.length) return;
+  const take = Math.min(n, engine.deck.length);
+  const bottom = engine.deck.splice(-take, take);
+  const isAI = engine.agentOf(user)?.kind === 'ai';
+  const toTop = [], toDisc = [];
+  for (const c of bottom) {
+    let top = true; // AI：全部置顶（把底牌翻上来用）
+    if (!isAI) {
+      const r = await engine.ask(user, {
+        type: REQ.CHOOSE_OPTION, title: `${fromName}：将【${c.name}（${SUIT_NAME[c.suit]}${c.number}）】置于？`,
+        options: [{ value: 'top', label: '牌堆顶' }, { value: 'discard', label: '弃牌堆' }],
+      });
+      top = r?.value !== 'discard';
+    }
+    (top ? toTop : toDisc).push(c);
+  }
+  if (toTop.length) engine.deck.unshift(...toTop);
+  if (toDisc.length) engine.discard.push(...toDisc);
+  engine.log(`${user.name} 查看牌库底 ${take} 张：${toTop.length} 张置顶${toDisc.length ? `、${toDisc.length} 张入弃牌堆` : ''}。`, 'good');
+  engine.changed();
+}
+
+// ---------- 上古号角（宝藏）：展示5名武将，获得其中1个锁定技或回合技 ----------
+async function playHaojiao(engine, user, card) {
+  engine.toDiscard([card]);
+  if (await nullified(engine, card, user, user)) return;
+  const bag = generalPool('hs').filter((id) => id !== user.generalId);
+  const picks = [];
+  while (picks.length < 5 && bag.length) picks.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);
+  const opts = [];
+  for (const gid of picks) {
+    const g = getGeneral(gid); if (!g) continue;
+    for (const k of (g.skills || [])) {
+      const meta = SKILLS[k];
+      if (!meta || meta.lord) continue;
+      if (meta.active && !meta.perTurn) continue; // 仅锁定技或回合技
+      if (user.skills.includes(k) || k === 'posui') continue; // 破碎依赖牌堆部件，跳过
+      opts.push({ value: k, label: `${g.name}·${meta.name}` });
+    }
+  }
+  engine.log(`${user.name} 吹响【上古号角】，展示：${picks.map((id) => getGeneral(id)?.name).filter(Boolean).join('、')}。`, 'play');
+  if (!opts.length) { engine.log('没有可获得的锁定技/回合技。', 'system'); return; }
+  let k;
+  if (engine.agentOf(user)?.kind === 'ai') k = opts[Math.floor(Math.random() * opts.length)].value;
+  else { const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: '上古号角：获得一个锁定技或回合技', options: opts }); k = r?.value || opts[0].value; }
+  user.skills.push(k);
+  engine.log(`✨ ${user.name} 获得技能【${SKILLS[k].name}】！`, 'win');
+  engine.changed();
+}
+
+// ---------- 潮汐之石（宝藏）：抽5张并跳过本回合弃牌阶段 ----------
+async function playChaoshi(engine, user, card) {
+  engine.toDiscard([card]);
+  if (await nullified(engine, card, user, user)) return;
+  engine.drawCards(user, 5);
+  user.flags.skipDiscard = true;
+  engine.log(`${user.name} 使用【潮汐之石】：抽5张牌，本回合跳过弃牌阶段。`, 'good');
+}
+
+// ---------- 潮汐之戒（宝藏）：视为你使用的上一张基本/锦囊牌，且无法被响应 ----------
+async function playChaojie(engine, user, card) {
+  engine.toDiscard([card]);
+  const info = user.lastSpell;
+  if (!info || !CARD_DEFS[info.kind]) { engine.log(`${user.name} 此前没有使用过基本/锦囊牌，【潮汐之戒】无效。`, 'system'); return; }
+  const v = virtualCard(info.kind, [], { suit: card.suit, number: card.number, red: card.red });
+  v._noResponse = true; // 所有技能和卡牌都无法响应此牌
+  const vdef = CARD_DEFS[info.kind];
+  const role = cardAs(v);
+  const human = engine.agentOf(user)?.kind !== 'ai';
+  const others = engine.alivePlayers.filter((p) => p !== user);
+  const pick = async (cands, byHp) => {
+    if (!cands.length) return null;
+    const sorted = cands.slice().sort((a, b) => {
+      const aa = engine.isAlly(user, a) ? 1 : 0, bb = engine.isAlly(user, b) ? 1 : 0;
+      if (aa !== bb) return aa - bb;
+      return byHp ? a.hp - b.hp : b.hand.length - a.hand.length;
+    });
+    if (!human) return sorted[0];
+    const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: `潮汐之戒·视为【${v.name}】：选择目标`, options: sorted.map((c) => ({ value: c.id, label: c.name })) });
+    return engine.playerById(r?.value) || sorted[0];
+  };
+  let targets = [];
+  if (role === 'sha') {
+    const t = await pick(shaTargets(engine, user, v), true);
+    if (!t) { engine.log('无合法目标，【潮汐之戒】无效。', 'system'); return; }
+    targets = [t];
+  } else if (role === 'shan') { engine.log('【闪】不能主动使用，【潮汐之戒】无效。', 'system'); return; }
+  else if (vdef.type === CARD_TYPE.TRICK) {
+    if (vdef.target === 'self') targets = [user];
+    else if (vdef.target === 'all') targets = engine.alivePlayers.slice();
+    else if (vdef.target === 'all_other') targets = others.slice();
+    else if (vdef.target === 'one_any') { const t = await pick(engine.alivePlayers.slice(), true); if (!t) return; targets = [t]; }
+    else {
+      const t = await pick(validTargets(engine, user, v), false);
+      if (!t) { engine.log('无合法目标，【潮汐之戒】无效。', 'system'); return; }
+      targets = [t];
+    }
+  }
+  engine.log(`${user.name} 的【潮汐之戒】视为使用【${v.name}】！`, 'play');
+  await resolveCard(engine, { user, card: v, targets, options: {} });
+}
+
+// ---------- 萨拉塔斯（宝藏武器）：使用本回合第n张牌时，可对所有距离n的角色造成n点伤害 ----------
+async function fireSarathas(engine, user, usedCard) {
+  if (engine.over || !user?.alive || engine.turnOwner !== user) return;
+  if (!hasWeaponKind(user, 'salatasi')) return;
+  const ty = CARD_DEFS[usedCard?.kind]?.type;
+  if (ty !== CARD_TYPE.BASIC && ty !== CARD_TYPE.TRICK) return; // 与 cardsUsed 计数口径一致
+  const n = user.flags?.cardsUsed || 0;
+  if (n < 1 || user.flags.sarathasSeen === n) return;
+  user.flags.sarathasSeen = n; // 每个 n 只给一次机会
+  const victims = engine.alivePlayers.filter((p) => p !== user && engine.distance(user, p) === n);
+  if (!victims.length) return;
+  let go;
+  if (engine.agentOf(user)?.kind === 'ai') go = victims.every((p) => !engine.isAlly(user, p));
+  else {
+    const r = await engine.ask(user, {
+      type: REQ.CHOOSE_OPTION, title: `萨拉塔斯：对所有距离${n}的角色各造成${n}点普通伤害？`,
+      options: [{ value: 'yes', label: `发动（${victims.map((p) => p.name).join('、')}）` }, { value: 'no', label: '放弃' }],
+    });
+    go = r?.value === 'yes';
+  }
+  if (!go) return;
+  engine.log(`${user.name} 的【萨拉塔斯】轰击所有距离 ${n} 的角色！`, 'play');
+  for (const p of victims) { if (p.alive && !engine.over) await engine.dealDamage({ source: user, target: p, amount: n, dodgeable: true }); } // 普通伤害：可闪
 }
 
 // ---------- 真言术盾：牌库顶1张置于一名角色武将牌上作"盾"（复用吞噬的盾机制） ----------

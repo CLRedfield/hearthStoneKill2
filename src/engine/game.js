@@ -760,9 +760,9 @@ export class GameEngine {
       const s = holder.secrets.find((x) => x.kind === 'dubiaoxianjing');
       removeFrom(holder.secrets, s); this.discard.push(s);
       this.fx('secret', { playerId: holder.id, label: '毒镖陷阱' });
-      this.log(`${holder.name} 触发奥秘【毒镖陷阱】，${player.name} 依次受到2次1点伤害！`, 'good');
+      this.log(`${holder.name} 触发奥秘【毒镖陷阱】，${player.name} 依次受到2次1点普通伤害！`, 'good');
       for (let i = 0; i < 2 && player.alive && !this.over; i++) {
-        await this.dealDamage({ source: holder, target: player, amount: 1 });
+        await this.dealDamage({ source: holder, target: player, amount: 1, dodgeable: true }); // 普通伤害：可闪
       }
     }
   }
@@ -861,7 +861,7 @@ export class GameEngine {
   }
 
   // 造成伤害的核心流程
-  async dealDamage({ source, target, amount = 1, nature = 'normal', card = null }) {
+  async dealDamage({ source, target, amount = 1, nature = 'normal', card = null, dodgeable = false }) {
     if (!target.alive || amount <= 0) return;
     // 冰火（晨拥）：你对有装备的角色造成的伤害+1（对任意伤害生效）
     if (source && source !== target && hasSkill(source, 'binhuo') && Object.values(target.equips).some(Boolean)) amount += 1;
@@ -902,6 +902,15 @@ export class GameEngine {
       this.log(`${target.name} 的【淡云圆盾】免疫了这次伤害。`, 'good');
       await this.pause(280);
       return;
+    }
+    // 普通伤害：目标可打出【闪】抵消（强制伤害不设 dodgeable，直接命中；【杀】的闪已在杀流程处理，不重复）
+    if (dodgeable && target.alive && amount > 0) {
+      const dodge = await getOneDodge(this, target, { source, card });
+      if (dodge) {
+        this.log(`${target.name} 打出【闪】，抵消了这次普通伤害。`, 'good');
+        await this.pause(300);
+        return;
+      }
     }
     // 防爆护盾：源于卡牌的伤害 → 改为视为该牌使用者对你使用1张【冲锋】（可被闪避，至多1点）
     if (card && !card._fromBomb && source && source !== target && hasArmorKind(target, 'bombshield')) {

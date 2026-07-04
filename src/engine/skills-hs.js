@@ -9,7 +9,7 @@ function makeRealCard(kind, suit = 'spade', number = 1) {
   const def = CARD_DEFS[kind] || {};
   return { id: uid('card'), kind, name: def.name, type: def.type, suit, number, red: suit === 'heart' || suit === 'diamond' };
 }
-import { REQ, SUIT_NAME, isBlack, CARD_TYPE } from './constants.js';
+import { REQ, SUIT_NAME, isBlack, isRed, CARD_TYPE } from './constants.js';
 
 function findOnPlayer(player, ref) {
   if (typeof ref !== 'string') return ref;
@@ -402,7 +402,7 @@ export const HS_SKILLS = {
           engine.drawCards(player, 3);
         } else if (jr.suit === 'spade') {
           const list = await pickMulti(others, 2, '元素之力（♠）：选择至多两名角色各受2点伤害', enemyWeak);
-          for (const t of list) { if (!player.alive || engine.over) break; await engine.dealDamage({ source: player, target: t, amount: 2 }); }
+          for (const t of list) { if (!player.alive || engine.over) break; await engine.dealDamage({ source: player, target: t, amount: 2, dodgeable: true }); } // 普通伤害：可闪
         } else {
           const cands = others.filter((p) => anyCards(p).length);
           const list = await pickMulti(cands, 3, '元素之力（♦）：选择至多三名角色各弃2张牌', enemyRich);
@@ -1227,7 +1227,7 @@ export const HS_SKILLS = {
         for (let i = 0; i < amount; i++) {
           for (const t of engine.alivePlayers.filter((p) => p !== player)) {
             if (!player.alive || engine.over) return;
-            await engine.dealDamage({ source: player, target: t, amount: 1 });
+            await engine.dealDamage({ source: player, target: t, amount: 1, dodgeable: true }); // 普通伤害：可闪
           }
         }
       },
@@ -1537,12 +1537,17 @@ export const HS_SKILLS = {
         player.skillState.relicCount = (player.skillState.relicCount || 0) + 1;
         if (player.skillState.relicCount % 3 !== 0) return;
         const owned = player.skillState.treasures || (player.skillState.treasures = []);
-        const all = ['chaoren', 'gujuan', 'zhenzhu'];
-        const avail = all.filter((k) => !owned.includes(k));
+        const all = [
+          { k: 'shangguhaojiao', suit: 'spade', number: 3 },
+          { k: 'salatasi', suit: 'club', number: 2 },
+          { k: 'chaoxizhishi', suit: 'diamond', number: 1 },
+          { k: 'chaoxizhijie', suit: 'heart', number: 1 },
+        ];
+        const avail = all.filter((x) => !owned.includes(x.k));
         if (!avail.length) return;
-        const k = avail[0]; owned.push(k);
-        const d = CARD_DEFS[k];
-        player.hand.push({ id: `treasure_${k}_${player.skillState.relicCount}`, kind: k, name: d.name, type: d.type, suit: 'heart', number: 13, red: true, slot: d.slot, range: d.range });
+        const t = avail[0]; owned.push(t.k);
+        const d = CARD_DEFS[t.k];
+        player.hand.push({ id: `treasure_${t.k}_${player.skillState.relicCount}`, kind: t.k, name: d.name, type: d.type, suit: t.suit, number: t.number, red: isRed(t.suit), slot: d.slot, range: d.range });
         engine.log(`${player.name} 发动【远古圣物】，获得【${d.name}】！`, 'good'); engine.changed();
       },
     },
@@ -1619,7 +1624,7 @@ export const HS_SKILLS = {
         engine.log(`${player.name} 发动【深渊】（大）！`, 'play');
         engine.drawCards(player, 2); await engine.recover(player, 2);
         const t = engine.playerById(move.targetId);
-        if (t && t.alive) await engine.dealDamage({ source: player, target: t, amount: 2 });
+        if (t && t.alive) await engine.dealDamage({ source: player, target: t, amount: 2, dodgeable: true }); // 普通伤害：可闪
       } else {
         const groups = {}; pile.forEach((c) => { (groups[c.suit] = groups[c.suit] || []).push(c); });
         const pair = Object.values(groups).find((g) => g.length >= 2);

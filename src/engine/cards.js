@@ -70,6 +70,7 @@ export const CARD_DEFS = {
   rishi: { name: '日蚀', type: CARD_TYPE.BASIC, as: 'jiu', replayNext: true, desc: '本回合你使用的下一张牌视为使用两次；濒死可自救。' },
   huanxiang: { name: '幻象', type: CARD_TYPE.BASIC, as: 'jiu', noRespondNext: true, desc: '本回合你使用的下一张牌无法被其他卡牌或技能响应；濒死可自救（回复1点）。' },
   xuese: { name: '血色', type: CARD_TYPE.BASIC, as: 'jiu', doubleNextDamage: true, desc: '本回合下一名受到伤害的角色所受伤害翻倍；濒死可自救（回复1点）。' },
+  jinguang: { name: '金光闪耀', type: CARD_TYPE.BASIC, as: 'tao', heal: 1, bottomPeek: 3, desc: '回复1点体力，然后查看牌库底3张牌，将它们逐张置于牌库顶或弃牌堆；濒死时可当【桃】救援（回复1点）。' },
   // ========== 锦囊牌 ==========
   xinlingshijie: { name: '心灵视界', type: CARD_TYPE.TRICK, behaves: 'shunshou', noDist: true, target: 'one_has_card', desc: '获得一名角色的一张牌（无距离限制）。' },
   xieelangyu: { name: '邪恶低语', type: CARD_TYPE.TRICK, behaves: 'guohe', discardTrickBonus: true, target: 'one_has_card', desc: '弃置一名角色的一张牌；若弃掉的是锦囊牌，再弃掉其一张牌。' },
@@ -136,9 +137,10 @@ export const CARD_DEFS = {
   cthunbody: { name: '克苏恩之躯', type: CARD_TYPE.BASIC, shard: 'body', desc: '破碎：克苏恩回复2点体力。' },
   cthunmouth: { name: '克苏恩之口', type: CARD_TYPE.BASIC, shard: 'mouth', desc: '破碎：克苏恩摸3张牌。' },
   // ========== 艾萨拉·沉落宝藏（由“远古圣物”获得，不在基础牌堆）==========
-  chaoren: { name: '沉落宝藏·潮刃', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, desc: '造成2点普通伤害。' },
-  gujuan: { name: '沉落宝藏·古卷', type: CARD_TYPE.TRICK, behaves: 'drawthree', target: 'self', desc: '摸三张牌。' },
-  zhenzhu: { name: '沉落宝藏·珍珠', type: CARD_TYPE.BASIC, as: 'tao', heal: 2, drawOnUse: 1, desc: '回复2点体力并摸一张牌。' },
+  shangguhaojiao: { name: '上古号角', type: CARD_TYPE.TRICK, behaves: 'haojiao', target: 'self', desc: '从武将牌中抽取5张，获得其中1名角色的锁定技或回合技。（沉落宝藏）' },
+  salatasi: { name: '萨拉塔斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, desc: '当你使用本回合的第n张牌时，你可以对所有与你距离为n的角色造成n点普通伤害。（沉落宝藏）' },
+  chaoxizhishi: { name: '潮汐之石', type: CARD_TYPE.TRICK, behaves: 'chaoshi', target: 'self', desc: '抽5张牌，并跳过本回合弃牌阶段。（沉落宝藏）' },
+  chaoxizhijie: { name: '潮汐之戒', type: CARD_TYPE.TRICK, behaves: 'chaojie', target: 'self', noResponse: true, desc: '该牌视为你使用的上一张基本或锦囊牌；当该牌被使用时，所有技能和卡牌都无法响应此牌。（沉落宝藏）' },
 
   // ========== 补全·防具 ==========
   rebirtharmor: { name: '复活之甲', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, capDamage: 1, offTurnCap: 3, desc: '你每次最多受到1点伤害。在你回合外的一轮中，你最多受到3点伤害。' },
@@ -301,13 +303,17 @@ const HS_DECK_LIST = [
   { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
   { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
   { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
+  // 金光闪耀×3（溯源·桃，花色点数按卡面）
+  { kind: 'jinguang', suit: 'heart', number: 2 },
+  { kind: 'jinguang', suit: 'heart', number: 2 },
+  { kind: 'jinguang', suit: 'heart', number: 2 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）
 export const SGS_KINDS = [...new Set(DECK_LIST.map((c) => c.kind))];
 export const HS_KINDS = [...new Set([
   ...HS_DECK_LIST.map((c) => c.kind),
-  'cthunheart', 'cthuneye', 'cthunbody', 'cthunmouth', 'chaoren', 'gujuan', 'zhenzhu',
+  'cthunheart', 'cthuneye', 'cthunbody', 'cthunmouth', 'shangguhaojiao', 'salatasi', 'chaoxizhishi', 'chaoxizhijie',
 ])];
 
 function makeCards(list) {
