@@ -97,6 +97,8 @@ export function validTargets(engine, user, card) {
     case 'one_has_card': return others.filter((t) => hasAnyCard(t) && !robed(t));
     case 'one_has_equip':
       return others.filter((t) => !robed(t) && (Object.values(t.equips).some(Boolean) || (t.equips2 && Object.values(t.equips2).some(Boolean))));
+    case 'one_any': // 任意一名角色（含自己）；防护长袍仍挡他人的指向性锦囊
+      return engine.alivePlayers.filter((t) => t === user || !robed(t));
     case 'one_in_1_has_card':
       return others.filter((t) => hasAnyCard(t) && !robed(t) && engine.distance(user, t) <= 1);
     case 'all': return engine.alivePlayers.slice();
@@ -143,6 +145,7 @@ async function fireRatTrap(engine, user) {
 
 // 法术共鸣（奥秘）：一名角色使用锦囊/奥秘牌时，使其失效并由持有者获得
 async function fireSpellResonance(engine, user, card) {
+  if (card._noResponse) return false; // 幻象：无法被响应
   const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'fashugongming'));
   if (!holder) return false;
   const s = holder.secrets.find((x) => x.kind === 'fashugongming');
@@ -158,6 +161,7 @@ async function fireSpellResonance(engine, user, card) {
 
 // 冰霜陷阱（奥秘）：一名角色使用锦囊/奥秘时，冻结此牌并再冻结其2张手牌；其下回合结束后解冻
 async function fireFrostTrap(engine, user, card) {
+  if (card._noResponse) return false; // 幻象：无法被响应
   const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'bingshuangxianjing'));
   if (!holder) return false;
   if (hasSkill(user, 'binhuo')) return false; // 晨拥·冰火：手牌无法被冻结，陷阱不触发
@@ -179,6 +183,7 @@ async function fireFrostTrap(engine, user, card) {
 
 // 爆炸符文（奥秘）：一名角色使用装备/奥秘牌时，弃掉这张牌，再弃掉其1张牌
 async function fireExplosiveRunes(engine, user, card) {
+  if (card._noResponse) return false; // 幻象：无法被响应
   const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'baozhafuwen'));
   if (!holder) return false;
   const s = holder.secrets.find((x) => x.kind === 'baozhafuwen');
@@ -196,6 +201,13 @@ async function fireExplosiveRunes(engine, user, card) {
 async function _resolveCard(engine, ctx) {
   const { user, card, targets } = ctx;
   const def = CARD_DEFS[card.kind];
+
+  // 幻象（酒）：本回合你使用的下一张牌无法被其他卡牌或技能响应
+  if (user.flags?.huanxiangPending && cardAs(card) !== 'jiu' && engine.turnOwner === user) {
+    user.flags.huanxiangPending = false;
+    card._noResponse = true;
+    engine.log(`【幻象】生效：【${card.name}】无法被响应！`, 'good');
+  }
 
   // 装备牌
   if (def.type === CARD_TYPE.EQUIP) {
@@ -343,6 +355,8 @@ async function _resolveCard(engine, ctx) {
   if (role === 'jiu') {
     if (def.turnShaBonus) { user.flags.turnShaBonus = (user.flags.turnShaBonus || 0) + 1; engine.log(`${user.name} 使用【${card.name}】，本回合所有【杀】伤害+1。`); }
     else if (def.replayNext) { user.flags.rishiPending = true; engine.log(`${user.name} 使用【${card.name}】，下一张牌将使用两次！`, 'good'); }
+    else if (def.noRespondNext) { user.flags.huanxiangPending = true; engine.log(`${user.name} 使用【${card.name}】，本回合下一张牌无法被响应！`, 'good'); }
+    else if (def.doubleNextDamage) { engine.xueseArmed = true; engine.log(`${user.name} 使用【${card.name}】，本回合下一名受到伤害的角色所受伤害翻倍！`, 'bad'); }
     else { user.flags.jiuUsed = true; engine.log(`${user.name} 使用【${card.name}】，本回合下一张【杀】伤害+1。`); }
     if (def.extraSha) user.flags.extraSha = (user.flags.extraSha || 0) + 1;
     engine.toDiscard([card]); user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
@@ -352,7 +366,7 @@ async function _resolveCard(engine, ctx) {
   user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
   // 误导（奥秘）：非范围指向性锦囊指定他人时，可改为指定另外一名角色
   if (def.type === CARD_TYPE.TRICK && targets.length === 1 && targets[0]
-    && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai', 'anzhong'].includes(behaves)) {
+    && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai', 'anzhong', 'zhenyan'].includes(behaves)) {
     targets[0] = await fireMisdirect(engine, user, targets[0], card);
   }
   switch (behaves) {
@@ -378,6 +392,7 @@ async function _resolveCard(engine, ctx) {
     case 'kangkai': await playKangkai(engine, user, targets[0], card); break;
     case 'zhaomingdan': await playZhaomingdan(engine, user, card); break;
     case 'anzhong': await playAnzhong(engine, user, targets[0], card); break;
+    case 'zhenyan': await playZhenyan(engine, user, targets[0] || user, card); break;
     case 'hsjuedou': await playHsJuedou(engine, user, targets[0], card); break;
     case 'hengchong': {
       const victim = engine.playerById(ctx.options?.victim) || targets[1];
@@ -565,6 +580,20 @@ async function playAnzhong(engine, user, target, card) {
   }
 }
 
+// ---------- 真言术盾：牌库顶1张置于一名角色武将牌上作"盾"（复用吞噬的盾机制） ----------
+async function playZhenyan(engine, user, target, card) {
+  engine.toDiscard([card]);
+  if (!target) return;
+  if (await nullified(engine, card, user, target)) return;
+  engine._refillDeck();
+  const c = engine.deck.shift();
+  if (!c) return;
+  (target.shieldCards = target.shieldCards || []).push(c);
+  target.shields = (target.shields || 0) + 1;
+  engine.log(`${user.name} 对 ${target.name} 使用【真言术盾】，其获得1枚“盾”（共 ${target.shields}）。`, 'good');
+  engine.changed();
+}
+
 // ---------- 炉石杀·决斗：比较手牌【杀】数（你视为多1张），少者受1点 ----------
 async function playHsJuedou(engine, user, target, card) {
   engine.toDiscard([card]);
@@ -740,7 +769,7 @@ async function useDrawnImmediately(engine, user, card) {
 
 // 误导（奥秘）：非范围锦囊指定其拥有者时，改为指定另外一名角色（拥有者选择；AI 优先甩回使用者）
 export async function fireMisdirect(engine, user, target, card) {
-  if (!target || target === user || card._misdirected) return target;
+  if (!target || target === user || card._misdirected || card._noResponse) return target;
   const sec = target.secrets?.find((s) => s.kind === 'wudao');
   if (!sec) return target;
   const cands = engine.alivePlayers.filter((p) => p !== target);
@@ -812,8 +841,9 @@ async function resolveShaOn(engine, user, target, card) {
   }
 
   const def = defOf(card);
-  // 刺骨：本回合此前用过其他牌 → 强制伤害（无法被闪避）；激化：本回合已使用≥3张牌 → 杀强制伤害
-  const unblockable = (def.unblockableIfUsed && (user.flags.cardsUsed || 0) >= 1)
+  // 刺骨：本回合此前用过其他牌 → 强制伤害（无法被闪避）；激化：本回合已使用≥3张牌 → 杀强制伤害；幻象：下一张牌无法被响应
+  const unblockable = !!card._noResponse
+    || (def.unblockableIfUsed && (user.flags.cardsUsed || 0) >= 1)
     || (hasSkill(user, 'jihua') && (user.flags.cardsUsed || 0) >= 3);
   let dodged = false;
   let lastShan = null; // 白银之枪：记录用于响应的实体【闪】（八卦/技能闪为 null）
@@ -1202,6 +1232,7 @@ async function playJiedao(engine, user, targets, card, ctx) {
 // ====================== 无懈可击链 ======================
 // 返回 true 表示原效果被抵消
 export async function nullified(engine, card, byUser, targetPlayer) {
+  if (card?._noResponse) return false; // 幻象：无法被卡牌/技能响应
   // 护心（尤格萨隆）：回合外每轮可凭空使用1次（觉醒后2次）【法术反制】保护自己
   if (targetPlayer && byUser && byUser !== targetPlayer && hasSkill(targetPlayer, 'huxin') && engine.turnOwner !== targetPlayer) {
     const cap = targetPlayer.skillState.yoggAwake ? 2 : 1;

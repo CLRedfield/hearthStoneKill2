@@ -143,7 +143,7 @@ export class AIAgent {
     const { engine, player, card, targetPlayer } = req;
     const opts = wuxieOptions(player);
     if (!opts.length) return null;
-    const harmful = ['guohe', 'shunshou', 'juedou', 'nanman', 'wanjian', 'lebu', 'shandian', 'fushishu', 'guldanhand', 'pingzhuangshandian', 'anzhongpohuai'].includes(card.kind);
+    const harmful = ['guohe', 'shunshou', 'juedou', 'nanman', 'wanjian', 'lebu', 'shandian', 'fushishu', 'guldanhand', 'pingzhuangshandian', 'anzhongpohuai', 'zhuanzhuyizhi'].includes(card.kind);
     const helpful = ['wuzhong', 'taoyuan', 'wugu'].includes(card.kind);
     // 抵消针对己方的有害锦囊
     if (harmful && targetPlayer && engine.isAlly(player, targetPlayer) && Math.random() < 0.7) {
@@ -552,6 +552,19 @@ export class AIAgent {
     if (az) {
       const tgts = validTargets(engine, player, az).filter((t) => enemies.includes(t));
       if (tgts.length) return { type: 'play', card: az, targets: [tgts[0]] };
+    }
+    // 7.55) 真言术盾：给自己或最残血的友方叠盾
+    const zy = handOfBeh('zhenyan');
+    if (zy) {
+      const t = [player, ...allies].sort((a, b) => a.hp - b.hp)[0] || player;
+      return { type: 'play', card: zy, targets: [t] };
+    }
+    // 7.56) 专注意志：贴给手牌多的敌人
+    const zz = hand.find((c) => c.kind === 'zhuanzhuyizhi' && !c.frozen);
+    if (zz) {
+      const tgt = validTargets(engine, player, zz).filter((t) => enemies.includes(t))
+        .sort((a, b) => b.hand.length - a.hand.length)[0];
+      if (tgt && Math.random() < 0.75) return { type: 'play', card: zz, targets: [tgt] };
     }
     // 7.6) 照明弹：敌方有奥秘（或自己有奥秘垫背）时使用
     const zm = handOfBeh('zhaomingdan');

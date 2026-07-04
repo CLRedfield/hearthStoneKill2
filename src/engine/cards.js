@@ -68,6 +68,8 @@ export const CARD_DEFS = {
   // ========== 酒类（as:'jiu'） ==========
   yueshi: { name: '月蚀', type: CARD_TYPE.BASIC, as: 'jiu', extraSha: true, turnShaBonus: true, desc: '本回合你的所有【杀】伤害+1，且可额外使用一张【杀】；濒死可自救。' },
   rishi: { name: '日蚀', type: CARD_TYPE.BASIC, as: 'jiu', replayNext: true, desc: '本回合你使用的下一张牌视为使用两次；濒死可自救。' },
+  huanxiang: { name: '幻象', type: CARD_TYPE.BASIC, as: 'jiu', noRespondNext: true, desc: '本回合你使用的下一张牌无法被其他卡牌或技能响应；濒死可自救（回复1点）。' },
+  xuese: { name: '血色', type: CARD_TYPE.BASIC, as: 'jiu', doubleNextDamage: true, desc: '本回合下一名受到伤害的角色所受伤害翻倍；濒死可自救（回复1点）。' },
   // ========== 锦囊牌 ==========
   xinlingshijie: { name: '心灵视界', type: CARD_TYPE.TRICK, behaves: 'shunshou', noDist: true, target: 'one_has_card', desc: '获得一名角色的一张牌（无距离限制）。' },
   xieelangyu: { name: '邪恶低语', type: CARD_TYPE.TRICK, behaves: 'guohe', discardTrickBonus: true, target: 'one_has_card', desc: '弃置一名角色的一张牌；若弃掉的是锦囊牌，再弃掉其一张牌。' },
@@ -84,6 +86,8 @@ export const CARD_DEFS = {
   anyingbu: { name: '暗影步', type: CARD_TYPE.TRICK, behaves: 'anyingbu', target: 'self', desc: '将你本回合进入弃牌堆的一张牌收回手牌。' },
   zhaomingdan: { name: '照明弹', type: CARD_TYPE.TRICK, behaves: 'zhaomingdan', target: 'self', desc: '抉择：①弃掉场上所有的奥秘，若没有弃掉你的奥秘，则对你造成2点强制伤害；②抽1张牌，然后你可以弃掉场上1张奥秘。' },
   anzhongpohuai: { name: '暗中破坏', type: CARD_TYPE.TRICK, behaves: 'anzhong', target: 'one_has_equip', desc: '弃掉一名角色1张使用中的装备牌。连击（本回合你使用过其他牌）：再弃掉其1张使用中的奥秘或装备牌。' },
+  zhenyanshudun: { name: '真言术盾', type: CARD_TYPE.TRICK, behaves: 'zhenyan', target: 'one_any', desc: '将牌库顶1张牌置于一名角色的武将牌上，称为"盾"（1张"盾"抵挡1点伤害，被摧毁后其拥有者抽1张牌）。' },
+  zhuanzhuyizhi: { name: '专注意志', type: CARD_TYPE.DELAYED, target: 'one_other', desc: '置入一名角色判定区。其回合开始时判定：红色且点数3~13，其到下回合开始只能使用【杀】【闪】；黑色且点数3~13，其到下回合开始无法使用所有技能。' },
   fengkuangzhizaihuo: { name: '疯狂之灾祸', type: CARD_TYPE.TRICK, behaves: 'fengkuang', target: 'all_other', desc: '所有其他角色需弃置一张【杀】，弃置者视为对其下一名角色使用【冲锋】，未弃置者展示手牌。' },
   // ========== 延时锦囊 ==========
   guldanhand: { name: '古尔丹之手', type: CARD_TYPE.DELAYED, target: 'one_other', desc: '目标回合开始时判定：非梅花则跳过其摸牌阶段；梅花则其本回合加入手牌的牌都会被弃置。' },
@@ -287,6 +291,16 @@ const HS_DECK_LIST = [
   { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
   { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
   { kind: 'anzhongpohuai', suit: 'spade', number: 4 },
+  // 幻象×2 / 血色×2（酒变体）、专注意志×2（延时）、真言术盾×3（花色点数按卡面）
+  { kind: 'huanxiang', suit: 'club', number: 11 },
+  { kind: 'huanxiang', suit: 'club', number: 11 },
+  { kind: 'xuese', suit: 'club', number: 8 },
+  { kind: 'xuese', suit: 'club', number: 8 },
+  { kind: 'zhuanzhuyizhi', suit: 'heart', number: 12 },
+  { kind: 'zhuanzhuyizhi', suit: 'heart', number: 12 },
+  { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
+  { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
+  { kind: 'zhenyanshudun', suit: 'diamond', number: 2 },
 ];
 
 // 图鉴用：各包包含的卡牌种类（HS 含不在常规牌堆中的破碎/沉落宝藏）

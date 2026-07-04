@@ -429,6 +429,7 @@ export class GameEngine {
     this.turnRecallable = [];
     this.skipToEnd = false;        // 清算（奥秘）：置为 true 后本回合直接进入结束阶段
     this.turnUsedCards = [];       // 抄袭（奥秘）：记录回合拥有者本回合使用过的实体牌
+    this.xueseArmed = false;       // 血色（酒）：仅本回合内有效
     // 每回合一次的技能状态清空
     player.skillState.zhihengUsed = false;
     player.skillState.qingnangUsed = false;
@@ -579,6 +580,18 @@ export class GameEngine {
       } else {
         player.flags.guldanCurse = true;
         this.log(`${player.name} 判定为梅花，本回合加入手牌的牌都会被弃置（古尔丹之手）。`, 'bad');
+      }
+    } else if (dcard.kind === 'zhuanzhuyizhi') {
+      // 专注意志：红3~13→到下回合开始只能用杀/闪；黑3~13→到下回合开始无法使用技能（flags 在其下回合开始被重置，天然到期）
+      this.discard.push(dcard);
+      if (isRed(jr.suit) && jr.number >= 3) {
+        player.flags.onlyShaShan = true;
+        this.log(`${player.name} 判定为红色 ${jr.number}：到下回合开始只能使用【杀】【闪】！`, 'bad');
+      } else if (isBlack(jr.suit) && jr.number >= 3) {
+        player.flags.noSkills = true;
+        this.log(`${player.name} 判定为黑色 ${jr.number}：到下回合开始无法使用所有技能！`, 'bad');
+      } else {
+        this.log(`${player.name} 判定点数不足3，【专注意志】失效。`, 'good');
       }
     } else if (dcard.kind === 'pingzhuangshandian') {
       // 瓶装闪电：黑色则受3点强制伤害，红色则转移到下一名角色
@@ -937,6 +950,12 @@ export class GameEngine {
       if (reduced < amount) this.log(`${target.name} 的【无可撼动盾】将伤害减为 ${reduced}。`, 'good');
       amount = reduced;
       if (amount <= 0) { await this.pause(280); return; }
+    }
+    // 血色（酒）：本回合下一名受到伤害的角色所受伤害翻倍
+    if (this.xueseArmed && amount > 0) {
+      this.xueseArmed = false;
+      amount *= 2;
+      this.log(`【血色】生效：${target.name} 所受伤害翻倍为 ${amount} 点！`, 'bad');
     }
     // 清算（奥秘·任何角色可持有）：一名角色造成3点或以上伤害 → 伤害无效，当前回合立即进入结束阶段
     if (source && amount >= 3) {

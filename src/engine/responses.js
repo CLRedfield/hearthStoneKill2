@@ -40,6 +40,7 @@ export function shaOptions(engine, p) {
 // 可作为【桃】使用的选项（含濒死救援）
 export function peachOptions(engine, p, forDying = false) {
   const out = [];
+  if (p.flags?.onlyShaShan) return out; // 专注意志（红判定）：只能使用杀/闪
   if (hasSkill(p, 'haigu') && !forDying) return out; // 骸骨重铸：桃仅濒死可用
   p.hand.forEach((c) => { if (isTao(c) && usable(c)) out.push({ label: c.name, card: c }); });
   p.hand.forEach((c) => { if (isJiu(c) && forDying && usable(c)) out.push({ label: c.name, card: c }); });
@@ -50,6 +51,7 @@ export function peachOptions(engine, p, forDying = false) {
 }
 
 export function wuxieOptions(p) {
+  if (p.flags?.onlyShaShan) return []; // 专注意志（红判定）：只能使用杀/闪
   return p.hand.filter((c) => (c.kind === 'wuxie' || CARD_DEFS[c.kind]?.as === 'wuxie') && !c.frozen).map((c) => ({ label: c.name, card: c }));
 }
 
@@ -114,6 +116,8 @@ export function cardPlayOptions(engine, p, card) {
     const v = virtualCard('guohe', [card], { suit: card.suit, number: card.number });
     if (validTargets(engine, p, v).length) opts.push({ kind: 'guohe', asName: '奇袭·过河拆桥', card: v, needTarget: true });
   }
+  // 专注意志（红判定）：到下回合开始只能使用【杀】【闪】
+  if (p.flags?.onlyShaShan) return opts.filter((o) => o.card && (isSha(o.card) || isShan(o.card)));
   return opts;
 }
 

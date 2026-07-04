@@ -5,10 +5,11 @@ import { HS_SKILLS } from './skills-hs.js';
 
 export function hasSkill(player, key) {
   if (!player) return false;
+  if (player.flags?.noSkills) return false; // 专注意志（黑判定）：到下回合开始无法使用所有技能
   return player.skills?.includes(key) || player.lordSkills?.includes(key);
 }
 
-const playerSkillList = (p) => (p ? [...(p.skills || []), ...(p.lordSkills || [])] : []);
+const playerSkillList = (p) => (p && !p.flags?.noSkills ? [...(p.skills || []), ...(p.lordSkills || [])] : []);
 
 // 炉石杀（注册表）技能：在某事件时遍历该玩家拥有的技能并调用其 triggers[event]
 async function hsRun(engine, event, data, owner) {
