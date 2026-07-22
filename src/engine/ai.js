@@ -499,12 +499,6 @@ export class AIAgent {
       const hasPair = Object.values(pile.reduce((m, c) => { m[c.suit] = (m[c.suit] || 0) + 1; return m; }, {})).some((n) => n >= 2);
       if (hasPair && hand.length <= 3) return { type: 'skill', skill: 'shenyuan2', mode: 'small' };
     }
-    // 恩佐斯·精华：弃牌堆某花色多时收集
-    if (acts.some((a) => a.skill === 'jinghua') && (engine.discard || []).length >= 4) {
-      const cnt = {}; engine.discard.forEach((c) => { cnt[c.suit] = (cnt[c.suit] || 0) + 1; });
-      const best = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
-      if (best && best[1] >= 2) return { type: 'skill', skill: 'jinghua', suit: best[0] };
-    }
     // AI 设置奥秘 / 装备由通用出牌逻辑处理
 
     // 4) 致命杀（范围内可击杀）

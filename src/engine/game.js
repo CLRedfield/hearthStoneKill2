@@ -286,7 +286,6 @@ export class GameEngine {
       return;
     }
     this.discard.push(...reals);
-    this._collectSink(reals, actor, false); // 恩佐斯·精华：进入弃牌堆的指定花色牌收为“沉”
     this.fx('discard', { cards: reals.map(fxCard) });
     this.changed();
   }
@@ -352,7 +351,7 @@ export class GameEngine {
       const toPile = [];
       for (const c of cards) { if (!this._routeLeavePlay(c, player)) toPile.push(c); }
       this.discard.push(...toPile);
-      this._collectSink(toPile, player, true); // 恩佐斯：精华花色 / 沉落（弃掉的基本/锦囊牌）收为“沉”
+      this._collectSink(toPile, player, true); // 恩佐斯·沉落：弃掉的基本/锦囊牌收为“沉”
       // 暗影步：记录回合归属者本回合主动失去/弃置的牌
       if (player === this.turnOwner) this.turnRecallable.push(...toPile);
       this.log(`${player.name} 失去 ${cards.length} 张牌。`);
@@ -497,17 +496,15 @@ export class GameEngine {
     if (thawed) this.changed();
   }
 
-  // 恩佐斯：精华（任何人弃入弃牌堆的指定花色牌）/ 沉落（恩佐斯弃掉的基本/锦囊牌）收为“沉”（移出弃牌堆，置于其武将牌 pile）
+  // 恩佐斯·沉落：其主动弃掉的基本/锦囊牌收为“沉”（移出弃牌堆，置于武将牌 pile）
   _collectSink(cards, fromPlayer, allowChenluo) {
     let any = false;
     for (const c of [...cards]) {
       if (!this.discard.includes(c)) continue;
-      let collector = this.players.find((p) => p.alive && p.skillState && p.skillState.jinghuaSuit && c.suit === p.skillState.jinghuaSuit) || null;
-      if (!collector && allowChenluo && fromPlayer && hasSkill(fromPlayer, 'chenluo')) {
-        const ty = CARD_DEFS[c.kind]?.type;
-        if (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) collector = fromPlayer;
-      }
-      if (collector) { removeFrom(this.discard, c); collector.pile.push(c); any = true; }
+      if (!allowChenluo || !fromPlayer || !hasSkill(fromPlayer, 'chenluo')) continue;
+      const ty = CARD_DEFS[c.kind]?.type;
+      if (ty !== CARD_TYPE.BASIC && ty !== CARD_TYPE.TRICK) continue;
+      removeFrom(this.discard, c); fromPlayer.pile.push(c); any = true;
     }
     if (any) this.changed();
   }
@@ -1340,6 +1337,7 @@ export class GameEngine {
       turnId: this.current?.id,
       deckCount: this.deck.length,
       discardTop: this.discard.slice(-1)[0] || null,
+      discard: this.discard,
       discardCount: this.discard.length,
       logs: this.logs.slice(-30),
       players: this.players.map((p) => ({
@@ -1355,6 +1353,21 @@ export class GameEngine {
         equips: p.equips,
         equips2: p.equips2 && (p.equips2.weapon || p.equips2.armor) ? p.equips2 : null, // 骨架第二装备
         judge: p.judge,
+        pile: p.pile || [],
+        blades: p.blades || 0,
+        resourceState: {
+          shardCount: p.skillState.shardCount || 0,
+          relicCount: p.skillState.relicCount || 0,
+          treasures: [...(p.skillState.treasures || [])],
+          miracleCount: p.skillState.miracleCount || 0,
+          xiehuoCount: p.skillState.xiehuoCount || 0,
+          twinPending: [...(p.skillState.twinPending || [])],
+          twinCurrent: [...(p.skillState.twinList || [])],
+          liuxingCounts: { ...(p.skillState.liuxingCounts || {}) },
+          huxinDodge: p.skillState.huxinDodge || 0,
+          huxinWuxie: p.skillState.huxinWuxie || 0,
+          yoggAwake: !!p.skillState.yoggAwake,
+        },
         shields: p.shields || 0,
         secretCount: (p.secrets || []).length,
         secrets: p.id === viewerId ? p.secrets : null, // 奥秘对他人隐藏

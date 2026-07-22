@@ -177,7 +177,6 @@ export function activeSkillOptions(engine, p) {
     const hasPair = Object.values(pile.reduce((m, c) => { (m[c.suit] = m[c.suit] || 0); m[c.suit]++; return m; }, {})).some((n) => n >= 2);
     if (suits.size >= 4 || hasPair) out.push({ skill: 'shenyuan2', name: '深渊' });
   }
-  if (can('jinghua') && !p.flags.jinghuaUsed && (engine.discard || []).length) out.push({ skill: 'jinghua', name: '精华' });
   if (can('suxing') && !p.skillState.suxingUsed) out.push({ skill: 'suxing', name: '苏醒(限)' });
   return out;
 }

@@ -127,8 +127,8 @@ export const HS_GENERALS = {
   },
   nzoth: {
     id: 'nzoth', name: '恩佐斯', faction: FACTION.OLDGOD, hp: 5, title: '深渊之神',
-    skills: ['chenluo', 'shenyuan2', 'jinghua', 'suxing'],
-    bio: '沉落（锁定技）：你使用/弃掉的基本/锦囊牌成为“沉”。深渊：弃4张异色沉→摸2回2造2，或弃2张同色沉→摸1。精华：指定花色把弃牌堆该花色收为沉。苏醒（限定技）：-1上限+1回血，本轮治疗失效。',
+    skills: ['chenluo', 'shenyuan2', 'suxing'],
+    bio: '沉落（锁定技）：你使用/弃掉的基本/锦囊牌成为“沉”。深渊：弃4张异色沉→摸2回2造2，或弃2张同色沉→摸1。苏醒（限定技）：-1上限+1回血，本轮治疗失效。',
   },
   yogg: {
     id: 'yogg', name: '尤格萨隆', faction: FACTION.OLDGOD, hp: 5, title: '命运主宰',

@@ -70,7 +70,7 @@ export const CARD_DEFS = {
   rishi: { name: '日蚀', type: CARD_TYPE.BASIC, as: 'jiu', replayNext: true, desc: '本回合你使用的下一张牌视为使用两次；濒死可自救。' },
   huanxiang: { name: '幻象', type: CARD_TYPE.BASIC, as: 'jiu', noRespondNext: true, desc: '本回合你使用的下一张牌无法被其他卡牌或技能响应；濒死可自救（回复1点）。' },
   xuese: { name: '血色', type: CARD_TYPE.BASIC, as: 'jiu', doubleNextDamage: true, desc: '本回合下一名受到伤害的角色所受伤害翻倍；濒死可自救（回复1点）。' },
-  jinguang: { name: '金光闪耀', type: CARD_TYPE.BASIC, as: 'tao', heal: 1, bottomPeek: 3, desc: '回复1点体力，然后查看牌库底3张牌，将它们逐张置于牌库顶或弃牌堆；濒死时可当【桃】救援（回复1点）。' },
+  jinguang: { name: '金光闪耀', type: CARD_TYPE.BASIC, as: 'tao', heal: 1, bottomPeek: 3, desc: '回复1点体力，然后查看牌库底3张牌：可将任意张按顺序置于牌库顶，其余置入弃牌堆；濒死时可当【桃】救援（回复1点）。' },
   // ========== 锦囊牌 ==========
   xinlingshijie: { name: '心灵视界', type: CARD_TYPE.TRICK, behaves: 'shunshou', noDist: true, target: 'one_has_card', desc: '获得一名角色的一张牌（无距离限制）。' },
   xieelangyu: { name: '邪恶低语', type: CARD_TYPE.TRICK, behaves: 'guohe', discardTrickBonus: true, target: 'one_has_card', desc: '弃置一名角色的一张牌；若弃掉的是锦囊牌，再弃掉其一张牌。' },

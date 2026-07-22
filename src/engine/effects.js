@@ -605,25 +605,32 @@ async function playAnzhong(engine, user, target, card) {
   }
 }
 
-// ---------- 金光闪耀：查看牌库底n张，逐张置于牌库顶或弃牌堆（探底式交互） ----------
+// ---------- 金光闪耀：查看牌库底n张，一次分配到牌库顶或弃牌堆 ----------
 async function peekBottomCards(engine, user, n, fromName = '金光闪耀') {
   engine._refillDeck();
   if (!engine.deck.length) return;
   const take = Math.min(n, engine.deck.length);
   const bottom = engine.deck.splice(-take, take);
   const isAI = engine.agentOf(user)?.kind === 'ai';
-  const toTop = [], toDisc = [];
-  for (const c of bottom) {
-    let top = true; // AI：全部置顶（把底牌翻上来用）
-    if (!isAI) {
-      const r = await engine.ask(user, {
-        type: REQ.CHOOSE_OPTION, title: `${fromName}：将【${c.name}（${SUIT_NAME[c.suit]}${c.number}）】置于？`,
-        options: [{ value: 'top', label: '牌堆顶' }, { value: 'discard', label: '弃牌堆' }],
-      });
-      top = r?.value !== 'discard';
+  let topIds = bottom.map((c) => c.id);
+  let discardIds = [];
+  if (!isAI) {
+    const r = await engine.ask(user, {
+      type: REQ.GUANXING,
+      mode: 'bottom_discard',
+      cards: bottom,
+      title: `${fromName}：分配牌库底 ${take} 张牌`,
+    });
+    if (r) {
+      topIds = Array.isArray(r.top) ? r.top : topIds;
+      discardIds = Array.isArray(r.discard) ? r.discard : bottom.filter((c) => !topIds.includes(c.id)).map((c) => c.id);
     }
-    (top ? toTop : toDisc).push(c);
   }
+  const seen = new Set();
+  const byIds = (ids) => ids.map((id) => bottom.find((c) => c.id === id)).filter((c) => c && !seen.has(c.id) && seen.add(c.id));
+  const toTop = byIds(topIds);
+  const toDisc = byIds(discardIds);
+  bottom.filter((c) => !seen.has(c.id)).forEach((c) => toDisc.push(c));
   if (toTop.length) engine.deck.unshift(...toTop);
   if (toDisc.length) engine.discard.push(...toDisc);
   engine.log(`${user.name} 查看牌库底 ${take} 张：${toTop.length} 张置顶${toDisc.length ? `、${toDisc.length} 张入弃牌堆` : ''}。`, 'good');

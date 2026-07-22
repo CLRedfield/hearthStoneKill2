@@ -21,6 +21,11 @@ export class GameUI {
     this.viewerId = viewerId;
     this.spectator = !!opts.spectator;
     this.rematch = opts.rematch || null; // { label, fn }
+    this.exitAction = opts.exitAction || null;
+    this.exitLabel = opts.exitLabel || '返回大厅';
+    this.exitConfirm = opts.exitConfirm || null;
+    this._goOverlay = null;
+    this._unsubs = [];
     this.root = null;
     this.pending = null;        // { req, resolve }
     // 出牌阶段交互状态
@@ -39,16 +44,23 @@ export class GameUI {
 
   get me() { return this.engine.playerById(this.viewerId); }
 
+  destroy() {
+    this._goOverlay?.close();
+    this._goOverlay = null;
+    this._unsubs.forEach((fn) => { try { fn(); } catch (e) {} });
+    this._unsubs = [];
+    if (this.pending) { this.pending.resolve(null); this.pending = null; }
+  }
   mountInto(rootEl) {
     this.root = rootEl;
     clear(rootEl);
     this.root.appendChild(el('div', { class: 'table-wrap', id: 'table-wrap' }));
     this.fx = new FxLayer();
-    this.engine.on('change', () => this.render());
-    this.engine.on('log', () => this.renderLog());
+    this._unsubs.push(this.engine.on('change', () => this.render()));
+    this._unsubs.push(this.engine.on('log', () => this.renderLog()));
     // 动画特效
-    this.engine.on('fx', (e) => this._onFx(e));
-    this.engine.on('damage', (e) => this.fx?.damage(this._panelEl(e.target.id), e.amount, e.nature));
+    this._unsubs.push(this.engine.on('fx', (e) => this._onFx(e)));
+    this._unsubs.push(this.engine.on('damage', (e) => this.fx?.damage(this._panelEl(e.target.id), e.amount, e.nature)));
     this.render();
   }
 
@@ -114,22 +126,30 @@ export class GameUI {
     ]);
   }
 
+  async _exitGame(overlay = null) {
+    const message = this.exitConfirm || '确定返回大厅？当前对局将结束。';
+    if (!confirm(message)) return;
+    overlay?.close();
+    if (this._goOverlay === overlay) this._goOverlay = null;
+    if (this.exitAction) await this.exitAction();
+    else location.reload();
+  }
+
   _openMenu() {
     let ov;
     ov = openOverlay({
       title: '游戏菜单', closable: true,
       bodyNode: el('div', { class: 'menu-list' }, [
-        el('div', { class: 'menu-hint', text: '随时可返回大厅重新开始一局。' }),
+        el('div', { class: 'menu-hint', text: this.exitAction ? '可退出当前联机房间；房主退出会关闭房间。' : '随时可返回大厅重新开始一局。' }),
       ]),
       buttons: [
         { label: '查看弃牌堆', onClick: () => { ov.close(); this._openDiscardViewer(); } },
         { label: '图鉴室', onClick: () => { ov.close(); openCodex(); } },
-        { label: '返回大厅', danger: true, onClick: () => { if (confirm('确定返回大厅？当前对局将结束。')) location.reload(); } },
+        { label: this.exitLabel, danger: true, onClick: () => this._exitGame(ov) },
         { label: '继续游戏', primary: true, onClick: () => ov.close() },
       ],
     });
   }
-
   _openDiscardViewer() {
     const pile = this.engine.discard || [];
     const body = el('div', { class: 'discard-viewer' });
@@ -140,6 +160,105 @@ export class GameUI {
       title: `弃牌堆（${pile.length} 张，最新在前）`, bodyNode: body, className: 'wide', closable: true,
       buttons: [{ label: '关闭', primary: true, onClick: () => ov.close() }],
     });
+  }
+
+  _resourceItems(p) {
+    const skills = new Set(p.skills || []);
+    const state = p.resourceState || {};
+    const flags = p.flags || {};
+    const pile = p.pile || [];
+    const items = [];
+    const add = (item) => items.push(item);
+    const suitSummary = (cards) => {
+      const counts = { spade: 0, heart: 0, club: 0, diamond: 0 };
+      cards.forEach((c) => { if (c?.suit in counts) counts[c.suit]++; });
+      return Object.entries(counts).filter(([, n]) => n).map(([s, n]) => `${SUIT_SYMBOL[s]}${n}`).join(' · ') || '暂无牌';
+    };
+    const named = (cards) => cards.map((c) => c.name || CARD_DEFS[c.kind]?.name || c.kind).join('、') || '暂无';
+
+    if (skills.has('chenluo')) add({ key: 'sink', label: '沉', value: pile.length, color: '#55aeb5', cards: pile, desc: `${suitSummary(pile)}。内容：${named(pile)}` });
+    else if (skills.has('huoyan')) {
+      const shas = pile.filter((c) => c.kind === 'sha' || CARD_DEFS[c.kind]?.as === 'sha');
+      add({ key: 'fire-eye', label: '火眼', value: shas.length, color: '#d66a4d', cards: shas, desc: `已收集 ${shas.length}/5 张【杀】。内容：${named(shas)}` });
+    } else if (skills.has('xintu')) {
+      const banked = pile.filter((c) => c.suit === 'spade' || c.suit === 'club');
+      add({ key: 'believer', label: '信徒', value: banked.length, color: '#8e82c5', cards: banked, desc: `武将牌上的黑色牌：${named(banked)}` });
+    }
+
+    if (skills.has('longwang') || skills.has('shunpi') || skills.has('qtanying') || skills.has('bhlinghun')) {
+      add({ key: 'blades', label: '刃', value: p.blades || 0, color: '#d4a72c', desc: `当前拥有 ${p.blades || 0} 枚“刃”；可用于【顺劈斩】【群体暗影】与【捕获灵魂】。` });
+    }
+    if (skills.has('posui')) add({ key: 'shards', label: '破碎', value: `${state.shardCount || 0}/12`, color: '#6d9ed8', desc: `已触发 ${state.shardCount || 0} 个破碎部件；达到4个时【组合】觉醒。` });
+    if (skills.has('yuangu')) {
+      const progress = (state.relicCount || 0) % 3;
+      const treasures = (state.treasures || []).map((k) => CARD_DEFS[k]?.name || k);
+      add({ key: 'relic', label: '圣物', value: `${progress}/3`, color: '#62b5bd', desc: `本轮宝藏进度 ${progress}/3。已获得：${treasures.join('、') || '暂无'}。` });
+    }
+    if (skills.has('mengji')) {
+      const damage = flags.mengjiDone ? 2 : Math.min(2, flags.mengjiDmg || 0);
+      add({ key: 'slam', label: '猛击', value: `${damage}/2`, color: '#d8844c', desc: '本回合累计造成2点伤害后，摸两张牌并回复1点体力。' });
+    }
+    if (skills.has('edwinqj')) add({ key: 'miracle', label: '奇迹', value: `${state.miracleCount || 0}/2`, color: '#9a78cc', desc: '每累计使用两张牌，摸一张牌。' });
+    if (skills.has('jihua')) add({ key: 'intensify', label: '激化', value: `${Math.min(flags.cardsUsed || 0, 7)}/7`, color: '#c0688f', desc: '本回合使用3张牌后【杀】改为强制伤害，使用7张后伤害再+3。' });
+    if (skills.has('xiehuo2')) add({ key: 'fel', label: '邪火', value: `${(state.xiehuoCount || 0) % 3}/3`, color: '#75ae55', desc: '每回合第3、6、9…张牌会再使用一次，并摸两张牌。' });
+    if (skills.has('xuanzhuan')) {
+      const count = Math.min(flags.xuanzhuanCount || 0, 3);
+      add({ key: 'spin', label: '旋转', value: `${count}/3`, color: '#c99a4e', desc: `本回合已发动 ${count} 次；每回合至多3次。` });
+    }
+    if (skills.has('liuxing')) {
+      const entries = Object.entries(state.liuxingCounts || {});
+      const total = entries.reduce((sum, [, n]) => sum + n, 0);
+      const detail = entries.map(([id, n]) => `${this.engine.playerById(id)?.name || id} ${n}/3`).join('、');
+      add({ key: 'meteor', label: '流星', value: total, color: '#7da4d6', desc: `本回合累计发动 ${total} 次。各目标：${detail || '暂无'}。` });
+    }
+    if (skills.has('huxin')) {
+      const cap = state.yoggAwake ? 2 : 1;
+      const dodge = Math.min(state.huxinDodge || 0, cap);
+      const counter = Math.min(state.huxinWuxie || 0, cap);
+      add({ key: 'heartguard', label: '护心', value: `${dodge + counter}/${cap * 2}`, color: '#8880c5', desc: `本轮额度：闪避 ${dodge}/${cap}，法术反制 ${counter}/${cap}。` });
+    }
+    if (skills.has('shuangsheng')) {
+      const pending = state.twinPending || [];
+      const current = state.twinCurrent || [];
+      const source = pending.length ? pending : current;
+      const cards = source.map((c, i) => ({ ...c, id: `twin_${i}`, name: CARD_DEFS[c.kind]?.name || c.kind }));
+      add({ key: 'twin', label: pending.length ? '待双生' : '双生', value: source.length, color: '#6f8ed2', cards, desc: `${pending.length ? '下个回合待重演' : '本回合已记录'}：${named(cards)}` });
+    }
+    return items;
+  }
+
+  _openResourceViewer(p, item) {
+    if (!item.cards?.length) return;
+    const body = el('div', { class: 'resource-viewer' });
+    item.cards.forEach((c) => body.appendChild(miniCardNode(c)));
+    let ov;
+    ov = openOverlay({
+      title: `${p.general?.name || p.name} · ${item.label}（${item.cards.length}）`,
+      bodyNode: body,
+      className: 'wide',
+      closable: true,
+      buttons: [{ label: '关闭', primary: true, onClick: () => ov.close() }],
+    });
+  }
+
+  _renderResources(p) {
+    const items = this._resourceItems(p);
+    if (!items.length) return null;
+    const row = el('div', { class: 'p-resources' });
+    items.forEach((item) => {
+      const tile = el('button', {
+        class: `resource-tile resource-${item.key}`,
+        type: 'button',
+        style: { '--resource': item.color },
+        onclick: (e) => { e.stopPropagation(); hideTip(); this._openResourceViewer(p, item); },
+      }, [
+        el('span', { class: 'resource-value', text: item.value }),
+        el('span', { class: 'resource-label', text: item.label }),
+      ]);
+      attachTip(tile, { title: item.label, sub: `当前：${item.value}`, desc: item.desc, accent: item.color });
+      row.appendChild(tile);
+    });
+    return row;
   }
 
   _renderOpponents(snap) {
@@ -236,6 +355,8 @@ export class GameUI {
       }
     });
 
+    const resources = this._renderResources(p);
+
     const info = el('div', { class: 'p-info' }, [
       el('div', { class: 'p-name-row' }, [
         el('span', { class: 'p-name', text: p.name }),
@@ -249,7 +370,7 @@ export class GameUI {
     const node = el('div', {
       class: cls, dataset: { pid: p.id },
       onclick: () => { if (selectable) this._onTargetClick(p.id); },
-    }, [portrait, info, skills, equips, judge, tokens]);
+    }, [portrait, info, resources, skills, equips, judge, tokens]);
 
     if (!p.alive) node.appendChild(el('div', { class: 'dead-overlay', text: '阵亡' }));
     return node;
@@ -449,9 +570,10 @@ export class GameUI {
     ]);
     const buttons = [];
     let ov;
-    if (this.rematch) buttons.push({ label: this.rematch.label || '再来一局', primary: true, onClick: () => { ov.close(); this._goShown = false; this.rematch.fn(); } });
-    buttons.push({ label: '返回大厅', danger: !!this.rematch, onClick: () => location.reload() });
+    if (this.rematch) buttons.push({ label: this.rematch.label || '再来一局', primary: true, onClick: () => { ov.close(); this._goOverlay = null; this._goShown = false; this.rematch.fn(); } });
+    buttons.push({ label: this.exitLabel, danger: !!this.rematch, onClick: () => this._exitGame(ov) });
     ov = openOverlay({ title: '对局结束', bodyNode: body, className: 'wide', buttons });
+    this._goOverlay = ov;
   }
 
   // ============ 交互逻辑 ============
@@ -686,14 +808,6 @@ export class GameUI {
         }
         return;
       }
-      if (skill === 'jinghua') {
-        const suit = await chooseDialog('精华：选择一种花色（收取弃牌堆中该花色牌为“沉”）', [
-          { value: 'spade', label: '♠ 黑桃' }, { value: 'heart', label: '♥ 红桃' },
-          { value: 'club', label: '♣ 梅花' }, { value: 'diamond', label: '♦ 方块' },
-        ], { closable: true });
-        if (suit) this._resolve({ type: 'skill', skill, suit });
-        return;
-      }
       if (skill === 'suxing') {
         const ok = await chooseDialog('苏醒（限定技，整局一次）：-1上限+1回血，本轮治疗失效。确定？', [{ value: true, label: '发动' }, { value: false, label: '取消' }]);
         if (ok) this._resolve({ type: 'skill', skill });
@@ -887,9 +1001,8 @@ export class GameUI {
       if (skill === 'fanzhao') {
         const pile = (engine.discard || []).filter((c) => !c.tessUsed); // 排除自己使用过的牌
         if (!pile.length) { toast('没有可获得的牌'); return; }
-        const opts = [...pile].reverse().slice(0, 24).map((c) => ({ value: c.id, label: `${c.name}` }));
-        const cardId = await chooseDialog('翻找：从弃牌堆获得一张牌（非你用过的）', opts, { closable: true });
-        if (cardId) this._resolve({ type: 'skill', skill, cardId });
+        const cards = await this._pickCards('翻找：从弃牌堆选择一张非你使用过的牌', [...pile].reverse(), 1, 1);
+        if (cards) this._resolve({ type: 'skill', skill, cardId: cards[0] });
         return;
       }
       if (skill === 'xuwu') {
@@ -1030,28 +1143,69 @@ export class HumanAgent {
 
   async _guanxing(req) {
     return new Promise((resolve) => {
-      const topOrder = [];
       const cards = req.cards.slice();
+      const discardMode = req.mode === 'bottom_discard';
+      const topOrder = discardMode ? cards.map((c) => c.id) : [];
+      const restKey = discardMode ? 'discard' : 'bottom';
       const body = el('div', { class: 'guanxing-body' });
+      const hint = el('div', {
+        class: 'gx-hint',
+        text: discardMode
+          ? '点击上方牌面将其移入弃牌堆；再次点击可移回。牌堆顶按从左到右的顺序摸取。'
+          : '点击下方牌面可按顺序置于牌堆顶；再次点击可移回牌堆底。',
+      });
+      const zones = el('div', { class: 'gx-zones' });
       const topZone = el('div', { class: 'gx-zone gx-top' });
-      const poolZone = el('div', { class: 'gx-zone gx-pool' });
+      const restZone = el('div', { class: `gx-zone ${discardMode ? 'gx-discard' : 'gx-bottom'}` });
+      const summary = el('div', { class: 'gx-summary' });
+      let ov, confirmBtn;
+      const restCards = () => cards.filter((c) => !topOrder.includes(c.id));
+      const zoneHead = (label, count) => el('div', { class: 'gx-zone-head' }, [
+        el('span', { class: 'gx-label', text: label }),
+        el('span', { class: 'gx-count', text: count }),
+      ]);
+      const cardNode = (card, onClick) => {
+        const node = miniCardNode(card, onClick);
+        node.classList.add('gx-card');
+        return node;
+      };
       const draw = () => {
-        clear(topZone); clear(poolZone);
-        topZone.appendChild(el('div', { class: 'gx-label', text: '牌堆顶（左→先摸）' }));
+        clear(topZone); clear(restZone);
+        topZone.appendChild(zoneHead('牌堆顶 · 左侧先摸', topOrder.length));
         topOrder.forEach((id) => {
           const c = cards.find((x) => x.id === id);
-          topZone.appendChild(miniCardNode(c, () => { const i = topOrder.indexOf(id); topOrder.splice(i, 1); draw(); }));
+          if (!c) return;
+          topZone.appendChild(cardNode(c, () => { const i = topOrder.indexOf(id); topOrder.splice(i, 1); draw(); }));
         });
-        poolZone.appendChild(el('div', { class: 'gx-label', text: '点击放到牌堆顶；剩余置于牌堆底' }));
-        cards.filter((c) => !topOrder.includes(c.id)).forEach((c) => {
-          poolZone.appendChild(miniCardNode(c, () => { topOrder.push(c.id); draw(); }));
+        if (!topOrder.length) topZone.appendChild(el('div', { class: 'gx-empty', text: '没有牌置于牌堆顶' }));
+
+        const rest = restCards();
+        restZone.appendChild(zoneHead(discardMode ? '弃牌堆' : '牌堆底', rest.length));
+        rest.forEach((c) => {
+          restZone.appendChild(cardNode(c, () => { topOrder.push(c.id); draw(); }));
         });
+        if (!rest.length) restZone.appendChild(el('div', { class: 'gx-empty', text: discardMode ? '没有牌会被弃置' : '没有牌置于牌堆底' }));
+
+        summary.textContent = discardMode
+          ? `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张弃置`
+          : `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张置底`;
+        if (confirmBtn) confirmBtn.textContent = `确认分配 · ${topOrder.length}/${rest.length}`;
       };
-      body.appendChild(topZone); body.appendChild(poolZone);
-      let ov = openOverlay({
-        title: req.title || '观星', bodyNode: body, className: 'wide',
-        buttons: [{ label: '确定', primary: true, onClick: () => { ov.close(); resolve({ top: topOrder, bottom: cards.filter((c) => !topOrder.includes(c.id)).map((c) => c.id) }); } }],
+      body.appendChild(hint);
+      zones.appendChild(topZone); zones.appendChild(restZone);
+      body.appendChild(zones); body.appendChild(summary);
+      ov = openOverlay({
+        title: req.title || '观星', bodyNode: body, className: 'wide arrange-overlay',
+        buttons: [{
+          label: '确认分配', primary: true,
+          onClick: () => {
+            const rest = restCards().map((c) => c.id);
+            ov.close();
+            resolve({ top: [...topOrder], [restKey]: rest });
+          },
+        }],
       });
+      confirmBtn = ov.panel.querySelector('.btn-primary');
       draw();
     });
   }

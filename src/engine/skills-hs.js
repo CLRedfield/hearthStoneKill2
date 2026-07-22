@@ -1528,18 +1528,33 @@ export const HS_SKILLS = {
 
   // ===== 艾萨拉女王（古神）=====
   tandi: {
-    name: '探底', desc: '锁定技：你的回合开始时，观看牌堆底3张牌，将每张选择置于牌堆顶或弃牌堆。',
+    name: '探底', desc: '锁定技：你的回合开始时，观看牌堆底3张牌：可将任意张按顺序置于牌堆顶，其余置入弃牌堆。',
     triggers: {
       async startPhase(engine, { player }) {
-        if (engine.deck.length < 3) return;
-        const bottom = engine.deck.splice(-3, 3);
+        engine._refillDeck();
+        if (!engine.deck.length) return;
+        const take = Math.min(3, engine.deck.length);
+        const bottom = engine.deck.splice(-take, take);
         const isAI = engine.agentOf(player)?.kind === 'ai';
-        const toTop = [], toDisc = [];
-        for (const c of bottom) {
-          let top = true; // AI：保守全部置顶（把底牌翻上来用）
-          if (!isAI) { const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `探底：将【${c.name}（${SUIT_NAME[c.suit]}${c.number}）】置于？`, options: [{ value: 'top', label: '牌堆顶' }, { value: 'discard', label: '弃牌堆' }] }); top = r?.value !== 'discard'; }
-          (top ? toTop : toDisc).push(c);
+        let topIds = bottom.map((c) => c.id);
+        let discardIds = [];
+        if (!isAI) {
+          const r = await engine.ask(player, {
+            type: REQ.GUANXING,
+            mode: 'bottom_discard',
+            cards: bottom,
+            title: `探底：分配牌库底 ${take} 张牌`,
+          });
+          if (r) {
+            topIds = Array.isArray(r.top) ? r.top : topIds;
+            discardIds = Array.isArray(r.discard) ? r.discard : bottom.filter((c) => !topIds.includes(c.id)).map((c) => c.id);
+          }
         }
+        const seen = new Set();
+        const byIds = (ids) => ids.map((id) => bottom.find((c) => c.id === id)).filter((c) => c && !seen.has(c.id) && seen.add(c.id));
+        const toTop = byIds(topIds);
+        const toDisc = byIds(discardIds);
+        bottom.filter((c) => !seen.has(c.id)).forEach((c) => toDisc.push(c));
         if (toTop.length) engine.deck.unshift(...toTop);
         if (toDisc.length) engine.discard.push(...toDisc);
         engine.log(`${player.name} 发动【探底】：${toTop.length}张置顶${toDisc.length ? `，${toDisc.length}张入弃牌堆` : ''}。`, 'good');
@@ -1563,7 +1578,28 @@ export const HS_SKILLS = {
         ];
         const avail = all.filter((x) => !owned.includes(x.k));
         if (!avail.length) return;
-        const t = avail[0]; owned.push(t.k);
+        let t = avail[0];
+        if (engine.agentOf(player)?.kind === 'ai') {
+          // AI：手牌紧缺时优先潮汐之石，有可复刻牌时偏好潮汐之戒。
+          t = avail.find((x) => x.k === 'chaoxizhishi' && player.hand.length <= 3)
+            || avail.find((x) => x.k === 'chaoxizhijie' && player.lastSpell)
+            || avail[0];
+        } else {
+          const r = await engine.ask(player, {
+            type: REQ.CHOOSE_OPTION,
+            title: '远古圣物：选择一张沉落宝藏',
+            options: avail.map((x) => {
+              const d = CARD_DEFS[x.k];
+              return {
+                value: x.k,
+                label: d.name,
+                card: { kind: x.k, name: d.name, type: d.type, suit: x.suit, number: x.number, red: isRed(x.suit) },
+              };
+            }),
+          });
+          t = avail.find((x) => x.k === r?.value) || avail[0];
+        }
+        owned.push(t.k);
         const d = CARD_DEFS[t.k];
         player.hand.push({ id: `treasure_${t.k}_${player.skillState.relicCount}`, kind: t.k, name: d.name, type: d.type, suit: t.suit, number: t.number, red: isRed(t.suit), slot: d.slot, range: d.range });
         engine.log(`${player.name} 发动【远古圣物】，获得【${d.name}】！`, 'good'); engine.changed();
@@ -1652,22 +1688,6 @@ export const HS_SKILLS = {
         engine.drawCards(player, 1);
       }
       engine.changed();
-    },
-  },
-  jinghua: {
-    name: '精华', active: true, perTurn: true,
-    desc: '出牌阶段指定一种花色：立即将弃牌堆中所有该花色的牌收为“沉”，且直到你下个回合开始前，所有置入弃牌堆的该花色牌都会变为“沉”（每回合一次）。',
-    async action(engine, { player, move }) {
-      player.flags.jinghuaUsed = true;
-      const suit = move.suit || 'spade';
-      player.skillState.jinghuaSuit = suit; // 前瞻：持续拦截该花色（恩佐斯回合开始清除，钩子见 game._collectSink）
-      const got = engine.discard.filter((c) => c.suit === suit);
-      got.forEach((c) => removeFrom(engine.discard, c)); player.pile.push(...got);
-      engine.log(`${player.name} 发动【精华】（${SUIT_NAME[suit]}），收取 ${got.length} 张，并持续到下个回合。`, 'good');
-      engine.changed();
-    },
-    triggers: {
-      startPhase(engine, { player }) { player.skillState.jinghuaSuit = null; }, // 恩佐斯回合开始清除前瞻
     },
   },
   suxing: {

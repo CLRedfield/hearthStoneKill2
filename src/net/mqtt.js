@@ -12,6 +12,9 @@ export const BROKER_ALTERNATIVES = [
   'wss://broker.hivemq.com:8884/mqtt',
 ];
 
+export const PROTOCOL_VERSION = 2;
+const MAX_PAYLOAD_BYTES = 256 * 1024;
+
 const NS = 'sgskill3'; // 主题命名空间，避免与公共 broker 上其它应用冲突
 
 export function getBroker() { return localStorage.getItem('mqtt_broker') || DEFAULT_BROKER; }
@@ -38,6 +41,9 @@ export function topics(code) {
     join: `${base}/join`,             // 加入请求（玩家发布，房主订阅）
     move: `${base}/move`,             // 换座申请（非房主发布，房主订阅）
     ready: `${base}/ready`,           // 客户端已完成对局订阅
+    leave: `${base}/leave`,           // 玩家主动离开
+    presence: `${base}/presence`,     // 玩家在线心跳
+    hostHeartbeat: `${base}/host`,    // 房主在线心跳
     act: `${base}/act`,               // 决策应答（玩家发布，房主订阅）
     fx: `${base}/fx`,                 // 动画特效广播（房主发布）
     chat: `${base}/chat`,             // 聊天 / 快捷喊话
@@ -77,6 +83,7 @@ export class MqttBus {
   }
 
   _onMessage(topic, payload) {
+    if (!payload || payload.length > MAX_PAYLOAD_BYTES) return;
     let data;
     try { data = JSON.parse(payload.toString()); } catch (e) { return; }
     const set = this.handlers.get(topic);
@@ -90,7 +97,30 @@ export class MqttBus {
       this.subscribed.add(topic);
       this.client.subscribe(topic, { qos: opts.qos ?? 1 });
     }
-    return () => this.handlers.get(topic)?.delete(fn);
+    return () => {
+      const set = this.handlers.get(topic);
+      if (!set) return;
+      set.delete(fn);
+      if (set.size) return;
+      this.handlers.delete(topic);
+      if (this.subscribed.delete(topic)) this.client?.unsubscribe(topic);
+    };
+  }
+
+  waitFor(topic, timeoutMs = 1800, opts = {}) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let unsub = () => {};
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsub();
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      unsub = this.sub(topic, (data) => finish(data), opts);
+    });
   }
 
   pub(topic, data, opts = {}) {
@@ -109,6 +139,10 @@ export class MqttBus {
     });
   }
 
-  end() { try { this.client?.end(true); } catch (e) {} }
+  end() {
+    this.handlers.clear();
+    this.subscribed.clear();
+    try { this.client?.end(true); } catch (e) {}
+  }
   get connected() { return !!this.client?.connected; }
 }

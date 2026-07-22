@@ -43,12 +43,12 @@ export function renderRoomView(container, state, h) {
     el('div', { class: 'rv-title', text: state.isLocal ? '单机房间' : '联机房间' }),
     state.code ? el('div', { class: 'rv-code-row' }, [
       el('div', { class: 'rv-code', text: `房间号 ${state.code}` }),
-      h.onCopyCode ? el('button', { class: 'rv-copy-btn', text: '复制', onclick: () => h.onCopyCode() }) : null,
+      h.onCopyCode ? el('button', { class: 'rv-copy-btn', text: '复制邀请', onclick: () => h.onCopyCode() }) : null,
     ]) : null,
-    state.code ? el('div', { class: 'rv-tip', text: '把房间号发给朋友，让其「加入房间」。' }) : null,
+    state.code ? el('div', { class: 'rv-tip', text: '建议发送完整邀请链接，好友会自动连接同一条线路。' }) : null,
     state.connectionStatus ? el('div', { class: `rv-net-status ${state.connectionStatus}` }, [
       el('span', { class: 'rv-net-dot' }),
-      el('span', { text: ({ connect: '联机正常', reconnect: '正在重连', offline: '连接已断开' })[state.connectionStatus] || '连接中' }),
+      el('span', { text: ({ connect: '联机正常', reconnect: '正在重连', offline: '连接已断开', 'host-offline': '房主暂时离线' })[state.connectionStatus] || '连接中' }),
     ]) : null,
   ]));
 
@@ -103,6 +103,7 @@ export function renderRoomView(container, state, h) {
       el('span', { class: 'rvs-idx', text: `#${i + 1}` }),
       el('span', { class: 'rvs-name', text: s.name }),
       s.tag ? el('span', { class: `rvs-tag tag-${s.kind}`, text: s.tag }) : null,
+      s.offline ? el('span', { class: 'rvs-status offline', text: '离线 · AI接管' }) : null,
     ];
     if ((s.kind === 'ai' || s.kind === 'empty') && state.canEdit) {
       children.push(el('button', {
@@ -148,7 +149,7 @@ export function renderRoomView(container, state, h) {
   // 观战席
   if (state.spectators && state.spectators.length) {
     const specRow = el('div', { class: 'rv-spectators' });
-    state.spectators.forEach((sp) => specRow.appendChild(el('span', { class: `rv-spec ${sp.isYou ? 'you' : ''}`, text: sp.name + (sp.isYou ? '（你）' : '') })));
+    state.spectators.forEach((sp) => specRow.appendChild(el('span', { class: `rv-spec ${sp.isYou ? 'you' : ''} ${sp.offline ? 'offline' : ''}`, text: sp.name + (sp.isYou ? '（你）' : '') + (sp.offline ? ' · 离线' : '') })));
     root.appendChild(el('div', { class: 'rv-section' }, [el('div', { class: 'rv-label', text: `观战席（${state.spectators.length}）` }), specRow]));
   }
 

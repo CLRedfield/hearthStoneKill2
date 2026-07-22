@@ -80,6 +80,24 @@
 .token-chip { font-size: 11px; padding: 1px 6px; border-radius: 7px; cursor: help; }
 .shield-chip { background: rgba(90,142,208,.22); border: 1px solid rgba(90,142,208,.55); color: #b9d4f2; }
 .secret-chip { background: rgba(177,134,255,.2); border: 1px solid rgba(177,134,255,.5); color: #d8c6ff; }
+/* 武将累计资源：紧凑常驻，点击牌类资源可查看内容 */
+.p-resources { display: flex; gap: 5px; flex-wrap: wrap; align-items: stretch; }
+.resource-tile {
+  position: relative; width: 46px; min-height: 39px; padding: 4px 3px 3px; overflow: hidden;
+  display: grid; place-items: center; align-content: center; gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--resource) 62%, transparent);
+  border-radius: 7px; background: rgba(5,7,9,.42); color: var(--text); cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  transition: transform .14s ease, border-color .14s ease, background .14s ease;
+}
+.resource-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--resource); opacity: .9; }
+.resource-tile:hover { transform: translateY(-2px); border-color: var(--resource); background: rgba(255,255,255,.06); }
+.resource-value { color: var(--resource); font-size: 14px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+.resource-label { color: var(--text-dim); font-size: 9px; line-height: 1; white-space: nowrap; }
+.resource-viewer {
+  display: flex; flex-wrap: wrap; gap: 9px; justify-content: center;
+  max-width: 680px; max-height: 58vh; overflow-y: auto; padding: 8px;
+}
 /* 奥秘触发动画 */
 .fx-secret { position: fixed; font: 700 18px/1 "STKaiti","KaiTi",serif; color: #d8c6ff; text-shadow: 0 0 12px rgba(177,134,255,.9), 0 2px 4px #000; will-change: transform, opacity; pointer-events: none; white-space: nowrap; }
 
@@ -164,9 +182,25 @@
 
 /* 选牌 / 选人 弹层 */
 .pick-grid, .choose-card-body, .guanxing-body, .pick-cards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.guanxing-body { flex-direction: column; }
-.gx-zone { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px dashed rgba(201,162,39,.3); border-radius: 8px; min-height: 70px; align-items: center; }
-.gx-label { width: 100%; font-size: 12px; color: var(--text-dim); }
+.guanxing-body { width: min(760px, 82vw); flex-direction: column; gap: 12px; }
+.gx-hint { color: var(--text-dim); font-size: 12px; line-height: 1.6; text-align: center; }
+.gx-zones { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 12px; }
+.gx-zone {
+  display: flex; flex-wrap: wrap; gap: 9px; align-content: flex-start; align-items: flex-start;
+  min-height: 156px; max-height: 46vh; overflow-y: auto; padding: 12px;
+  border: 1px solid rgba(201,162,39,.34); border-radius: 10px;
+  background: rgba(0,0,0,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+}
+.gx-top { border-color: rgba(236,202,94,.58); }
+.gx-discard { border-color: rgba(224,88,79,.48); }
+.gx-bottom { border-color: rgba(100,132,178,.48); }
+.gx-zone-head { width: 100%; display: flex; align-items: center; justify-content: space-between; padding-bottom: 7px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.gx-label { color: var(--text); font-size: 12px; font-weight: 700; letter-spacing: .5px; }
+.gx-count { min-width: 22px; height: 20px; display: grid; place-items: center; border-radius: 6px; background: rgba(201,162,39,.16); color: var(--gold-bright); font-size: 11px; font-weight: 700; }
+.gx-empty { width: 100%; align-self: center; padding: 26px 8px; color: var(--text-dim); font-size: 12px; text-align: center; }
+.gx-summary { color: var(--gold-bright); font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+.gx-card { animation: gxCardIn .16s ease-out both; }
+@keyframes gxCardIn { from { opacity: 0; transform: translateY(5px) scale(.97); } to { opacity: 1; transform: none; } }
 .pick-players { display: flex; flex-direction: column; gap: 8px; }
 .pick-player-btn { text-align: left; }
 .mini-card { position: relative; width: 52px; height: 72px; border-radius: 7px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e; color: #2a2016; cursor: pointer; padding: 4px; box-shadow: 0 3px 8px var(--shadow); transition: transform .12s; }
@@ -261,7 +295,8 @@
 .chat-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .chat-dot.connect { background: #4fd07a; box-shadow: 0 0 6px #4fd07a; }
 .chat-dot.reconnect { background: #e8c45a; box-shadow: 0 0 6px #e8c45a; animation: dotPulse .8s infinite; }
-.chat-dot.offline { background: #e0584f; box-shadow: 0 0 6px #e0584f; }
+.chat-dot.offline, .chat-dot.host-offline { background: #e0584f; box-shadow: 0 0 6px #e0584f; }
+.chat-dot.host-offline { animation: dotPulse 1.2s infinite; }
 @keyframes dotPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 .chat-title { color: var(--gold-bright); font-size: 14px; font-weight: 600; }
 .chat-status { font-size: 11px; color: var(--text-dim); margin-left: 2px; }
@@ -318,10 +353,18 @@
   .p-badges .p-faction, .p-identity, .p-team { font-size: 10px; padding: 0 5px; }
   .hp-bead { width: 8px; height: 8px; }
   .skill-tag, .equip-chip, .judge-chip, .token-chip { font-size: 10px; }
+  .p-resources { gap: 3px; }
+  .resource-tile { width: 39px; min-height: 34px; padding: 3px 2px; }
+  .resource-value { font-size: 12px; }
+  .resource-label { font-size: 8px; }
   .self-panel { width: 152px; }
   .self-panel .p-portrait { width: 36px; height: 36px; }
   .self-panel .p-pchar { font-size: 22px; }
   .self-panel .p-name { font-size: 14px; }
+  .guanxing-body { width: min(88vw, 560px); }
+  .gx-zones { grid-template-columns: 1fr; }
+  .gx-zone { min-height: 108px; max-height: 25vh; padding: 9px; }
+  .gx-hint { font-size: 11px; }
   .card-face { width: 50px; height: 70px; padding: 3px 4px; }
   .cf-name { font-size: 14px; } .cf-rank { font-size: 13px; } .cf-suit { font-size: 11px; } .cf-type { font-size: 8px; }
   /* 手牌横向滚动，避免竖屏堆叠占满屏幕 */

@@ -188,6 +188,7 @@ html[data-theme='light'] .tag-ai,
 html[data-theme='light'] .tag-empty,
 html[data-theme='light'] .p-ai-tag { background: #e4e1ec; border-color: #817995; color: #453e56; }
 html[data-theme='light'] .rv-spec { background: #e2e8ef; border-color: #71849a; color: #35485d; }
+html[data-theme='light'] .rvs-status.offline { color: #872821; background: #fde2df; border-color: #b94d45; }
 html[data-theme='light'] .toast-error { background: #fff0ed; border-color: #a92f29; color: #8f2722; }
 html[data-theme='light'] .codex-bar { background: linear-gradient(180deg, var(--ink-2) 72%, rgba(247,237,222,.9)); }
 html[data-theme='light'] .log-panel { background: rgba(255,250,240,.78); }

@@ -152,7 +152,8 @@
 .rv-net-status { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 7px; font-size: 12px; color: var(--text-dim); }
 .rv-net-dot { width: 8px; height: 8px; border-radius: 50%; background: #39a966; box-shadow: 0 0 0 3px rgba(57,169,102,.13); }
 .rv-net-status.reconnect .rv-net-dot { background: #c69825; animation: dotPulse .8s infinite; }
-.rv-net-status.offline .rv-net-dot { background: var(--red-bright); }
+.rv-net-status.offline .rv-net-dot, .rv-net-status.host-offline .rv-net-dot { background: var(--red-bright); }
+.rv-net-status.host-offline .rv-net-dot { animation: dotPulse 1.2s infinite; }
 .rv-section { display: flex; flex-direction: column; gap: 8px; }
 .rv-label { font-size: 13px; color: var(--text-dim); letter-spacing: 1px; }
 .rv-modes { display: flex; gap: 10px; }
@@ -178,11 +179,14 @@
 .rv-seat .seat-diff + .seat-kick, .rv-seat .seat-kick { margin-left: 6px; }
 .seat-toggle { align-self: flex-start; margin-top: 6px; font-size: 12px; }
 .rvs-tag { font-size: 11px; padding: 1px 7px; border-radius: 7px; }
+.rvs-status { font-size: 10px; padding: 2px 6px; border-radius: 7px; white-space: nowrap; }
+.rvs-status.offline { color: #ffaaa2; background: rgba(184,49,42,.2); border: 1px solid rgba(224,88,79,.42); }
 .tag-human { background: rgba(201,162,39,.25); color: var(--gold-bright); }
 .tag-ai, .tag-empty { background: rgba(110,110,140,.3); color: #c9c9da; }
 .rv-spectators { display: flex; flex-wrap: wrap; gap: 8px; }
 .rv-spec { font-size: 13px; padding: 4px 10px; border-radius: 8px; background: rgba(110,130,160,.18); border: 1px solid rgba(140,160,190,.35); color: #c7d4e2; }
 .rv-spec.you { border-color: var(--gold-bright); color: var(--gold-bright); }
+.rv-spec.offline { opacity: .68; border-style: dashed; }
 .rv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-btn { font-size: 13px; color: var(--text); background: var(--ink-1); border: 1px solid rgba(201,162,39,.3); border-radius: 8px; padding: 6px 14px; cursor: pointer; transition: all .14s; }
 .chip-btn:hover { border-color: var(--gold); }
