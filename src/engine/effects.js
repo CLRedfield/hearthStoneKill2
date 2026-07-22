@@ -133,7 +133,14 @@ export async function resolveCard(engine, ctx) {
     }
   }
   let out;
-  try { out = await _resolveCard(engine, ctx); }
+  try {
+    out = await _resolveCard(engine, ctx);
+    // 所有成功使用的牌统一在此计数并触发 usedCard，确保每种牌恰好触发一次。
+    if (!ctx.cardUseCancelled) {
+      ctx.user.flags.cardsUsed = (ctx.user.flags.cardsUsed || 0) + 1;
+      await triggerSkill(engine, 'usedCard', { player: ctx.user, card: ctx.card });
+    }
+  }
   finally { engine._actingUser = _prevActor; }
   await fireRatTrap(engine, ctx.user);
   await fireSarathas(engine, ctx.user, ctx.card);
@@ -255,6 +262,7 @@ async function _resolveCard(engine, ctx) {
 
   // 奥秘（盖放，不公开名称）
   if (def.type === CARD_TYPE.SECRET) {
+    if (user.secrets.some((s) => s.kind === card.kind)) ctx.cardUseCancelled = true;
     if (user.secrets.some((s) => s.kind === card.kind)) { user.hand.push(card); engine.log(`${user.name} 已有相同奥秘。`, 'system'); return; }
     await engine.noteSpellUse(user); // 先计数（可触发他人【邪恶计谋】），再放置并记快照
     if (await fireSpellResonance(engine, user, card)) return;
@@ -284,12 +292,13 @@ async function _resolveCard(engine, ctx) {
       const selfTarget = def.behaves === 'shandian' || card.kind === 'shandian';
       tgt = selfTarget ? user : targets[0];
     }
-    if (!tgt) { engine.toDiscard([card]); return; }
+    if (!tgt) { ctx.cardUseCancelled = true; engine.toDiscard([card]); return; }
     await engine.noteSpellUse(user); // 延时锦囊计数（邪恶计谋）
     if (await fireSpellResonance(engine, user, card)) return;
     if (await fireFrostTrap(engine, user, card)) return;
     // 误导（奥秘）：非范围锦囊指定他人时可改目标
     if (tgt !== user) tgt = await fireMisdirect(engine, user, tgt, card);
+    if (tgt.judge.some((j) => j.kind === card.kind)) ctx.cardUseCancelled = true;
     if (tgt.judge.some((j) => j.kind === card.kind)) { engine.toDiscard([card]); return; } // 防重复同名
     // 无懈可击 / 法术反制：可抵消对他人贴放的延时锦囊（对自己贴放的闪电/瓶装闪电不触发）
     if (tgt !== user && await nullified(engine, card, user, tgt)) { engine.toDiscard([card]); engine.log(`【${card.name}】被抵消。`, 'good'); return; }
@@ -350,22 +359,18 @@ async function _resolveCard(engine, ctx) {
       if (reals.length > 1) engine.discard.push(...reals.slice(1)); // 丈八等多源牌：多余的进弃牌堆
       engine.log(`${user.name} 发动【蛊惑】，将【${card.name}】置入 ${t.name} 的奥秘区，其回合结束时生效。`, 'play');
       engine.changed();
-      user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
       await triggerSkill(engine, 'usedSha', { player: user, card });
-      await triggerSkill(engine, 'usedCard', { player: user, card });
       return;
     }
-    await playSha(engine, user, targets, card, ctx); user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
+    await playSha(engine, user, targets, card, ctx);
     await triggerSkill(engine, 'usedSha', { player: user, card });
-    await triggerSkill(engine, 'usedCard', { player: user, card }); // 牌已入弃牌堆后触发（沉落等）
     return;
   }
   if (role === 'tao') {
     await engine.recover(user, def.heal || 1); if (def.drawOnUse) engine.drawCards(user, def.drawOnUse);
     if (def.healAlly && targets[0] && targets[0] !== user && targets[0].alive) await engine.recover(targets[0], 1); // 联结治疗
     if (def.bottomPeek) await peekBottomCards(engine, user, def.bottomPeek, card.name); // 金光闪耀
-    engine.toDiscard([card]); user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
-    await triggerSkill(engine, 'usedCard', { player: user, card });
+    engine.toDiscard([card]);
     return;
   }
   if (role === 'jiu') {
@@ -375,11 +380,9 @@ async function _resolveCard(engine, ctx) {
     else if (def.doubleNextDamage) { engine.xueseArmed = true; engine.log(`${user.name} 使用【${card.name}】，本回合下一名受到伤害的角色所受伤害翻倍！`, 'bad'); }
     else { user.flags.jiuUsed = true; engine.log(`${user.name} 使用【${card.name}】，本回合下一张【杀】伤害+1。`); }
     if (def.extraSha) user.flags.extraSha = (user.flags.extraSha || 0) + 1;
-    engine.toDiscard([card]); user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
-    await triggerSkill(engine, 'usedCard', { player: user, card });
+    engine.toDiscard([card]);
     return;
   }
-  user.flags.cardsUsed = (user.flags.cardsUsed || 0) + 1;
   // 误导（奥秘）：非范围指向性锦囊指定他人时，可改为指定另外一名角色
   if (def.type === CARD_TYPE.TRICK && targets.length === 1 && targets[0]
     && ['shunshou', 'guohe', 'juedou', 'hsjuedou', 'kangkai', 'anzhong', 'zhenyan'].includes(behaves)) {
@@ -424,8 +427,6 @@ async function _resolveCard(engine, ctx) {
       engine.toDiscard([card]);
       engine.log(`（${card.name} 暂未实现完整效果）`, 'system');
   }
-  // 锦囊结算完毕（已入弃牌堆）后触发 usedCard（沉落等需要牌在弃牌堆）
-  await triggerSkill(engine, 'usedCard', { player: user, card });
 }
 
 // ---------- 刀扇：对所有其他角色造成1点伤害，然后摸1张 ----------
