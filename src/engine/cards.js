@@ -9,7 +9,7 @@ export const CARD_DEFS = {
   sha: { name: '杀', type: CARD_TYPE.BASIC, desc: '出牌阶段对攻击范围内一名角色造成1点伤害；目标可用【闪】抵消。' },
   shan: { name: '闪', type: CARD_TYPE.BASIC, desc: '抵消一张【杀】。' },
   tao: { name: '桃', type: CARD_TYPE.BASIC, desc: '回复1点体力；或在濒死时救援。' },
-  jiu: { name: '酒', type: CARD_TYPE.BASIC, desc: '使本回合下一张【杀】伤害+1；或濒死时回复1点体力。' },
+  jiu: { name: '酒', type: CARD_TYPE.BASIC, desc: '使本回合下一张【杀】伤害+1；或仅在自己濒死时回复1点体力。' },
 
   // ---------- 即时锦囊 ----------
   wuzhong: { name: '无中生有', type: CARD_TYPE.TRICK, target: 'self', desc: '摸两张牌。' },

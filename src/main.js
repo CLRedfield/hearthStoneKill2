@@ -1,7 +1,9 @@
 // ====================== 应用入口 ======================
 import { Lobby } from './ui/lobby.js';
+import { initTheme } from './ui/theme.js';
 
 function boot() {
+  initTheme();
   const app = document.getElementById('app');
   // 短暂展示开场动画后进入大厅
   setTimeout(() => {

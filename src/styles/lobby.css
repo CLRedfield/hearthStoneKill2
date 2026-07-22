@@ -1,5 +1,5 @@
 /* ====================== 大厅 / 房间 ====================== */
-.lobby { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow-y: auto; padding: 24px 16px; }
+.lobby { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow-y: auto; overscroll-behavior: contain; padding: calc(24px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px)); }
 .lobby-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; max-width: 860px; margin: auto; }
 .lobby-bg { position: absolute; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
 .ink-1, .ink-2 {
@@ -53,6 +53,7 @@
 
 .home-panel { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 22px; }
 .home-row { display: flex; align-items: center; gap: 12px; color: var(--text-dim); }
+.name-field { flex: 1; }
 .name-input {
   font-family: inherit; font-size: 15px; color: var(--text);
   background: var(--ink-1); border: 1px solid rgba(201,162,39,.4);
@@ -113,7 +114,7 @@
 .gp-bio { font-size: 11px; color: var(--text-dim); line-height: 1.5; text-align: left; }
 
 /* 房间界面 */
-.room-screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; z-index: 1; }
+.room-screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 22px; z-index: 1; overflow-y: auto; overscroll-behavior: contain; padding: calc(64px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px)); }
 .room-head { text-align: center; }
 .room-code { font-size: 38px; letter-spacing: 8px; color: var(--gold-bright); font-weight: 700; }
 .room-mode { font-size: 15px; color: var(--text-dim); margin-top: 4px; }
@@ -134,7 +135,7 @@
 /* ===== 统一房间视图 ===== */
 .room-panel { padding: 0; background: none; border: none; box-shadow: none; }
 .room-view {
-  position: relative; z-index: 1; width: min(560px, 92vw);
+  position: relative; z-index: 1; width: min(560px, 92vw); margin: auto;
   display: flex; flex-direction: column; gap: 14px;
   background: linear-gradient(180deg, rgba(34,26,21,.92), rgba(20,15,11,.94));
   border: 1px solid rgba(201,162,39,.34); border-radius: 16px; padding: 22px 24px;
@@ -144,6 +145,14 @@
 .rv-title { font-size: 20px; color: var(--gold-bright); letter-spacing: 3px; }
 .rv-code { font-size: 28px; letter-spacing: 6px; color: var(--gold-bright); font-weight: 700; margin-top: 4px; }
 .rv-head .rv-tip { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.rv-code-row { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 4px; }
+.rv-code-row .rv-code { margin-top: 0; }
+.rv-copy-btn { min-height: 34px; padding: 6px 11px; border-radius: 8px; border: 1px solid rgba(154,116,24,.4); background: var(--ink-1); color: var(--gold-bright); font-family: inherit; cursor: pointer; }
+.rv-copy-btn:hover { border-color: var(--gold); }
+.rv-net-status { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 7px; font-size: 12px; color: var(--text-dim); }
+.rv-net-dot { width: 8px; height: 8px; border-radius: 50%; background: #39a966; box-shadow: 0 0 0 3px rgba(57,169,102,.13); }
+.rv-net-status.reconnect .rv-net-dot { background: #c69825; animation: dotPulse .8s infinite; }
+.rv-net-status.offline .rv-net-dot { background: var(--red-bright); }
 .rv-section { display: flex; flex-direction: column; gap: 8px; }
 .rv-label { font-size: 13px; color: var(--text-dim); letter-spacing: 1px; }
 .rv-modes { display: flex; gap: 10px; }
@@ -242,7 +251,7 @@
 
 /* ===== 大厅 / 房间 / 图鉴 手机适配 ===== */
 @media (max-width: 640px) {
-  .lobby { padding: 16px 10px; }
+  .lobby { justify-content: flex-start; padding: calc(64px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) calc(22px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px)); }
   .lobby-title.compact { margin-bottom: 4px; }
   .lt-main { font-size: 40px; letter-spacing: 10px; }
   .lt-seal { width: 70px; height: 70px; font-size: 46px; line-height: 70px; }

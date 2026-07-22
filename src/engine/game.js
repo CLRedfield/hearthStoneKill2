@@ -1073,12 +1073,17 @@ export class GameEngine {
         const resp = await this.ask(responder, {
           type: REQ.ASK_PEACH, dying: player, need,
           title: responder === player
-            ? `你濒死了！是否使用【桃】？（还需 ${need} 点）`
+            ? `你濒死了！是否使用【桃】或【酒】？（还需 ${need} 点）`
             : `${player.name} 濒死，是否使用【桃】救援？`,
         });
         const card = resp && resp.card;
         if (!card) break;
-        // 使用桃/酒救援
+        // 桃可救任意濒死角色；酒只能由濒死者本人自救（主机权威校验）。
+        const role = cardAs(card);
+        if (role !== 'tao' && !(role === 'jiu' && responder === player)) {
+          this.log(`${responder.name} 的【${card.name}】不能用于救援 ${player.name}。`, 'system');
+          break;
+        }
         const sources = card.virtual ? card.sourceCards : [card];
         sources.forEach((c) => removeFrom(responder.hand, c));
         this.toDiscard([card], responder);

@@ -8,7 +8,7 @@ const STATUS_TEXT = { connect: '已连接', reconnect: '重连中…', offline: 
 export class ChatBox {
   constructor(bus, code, me) {
     this.bus = bus; this.me = me; this.T = topics(code);
-    this.msgs = []; this.collapsed = false; this.status = 'connect'; this.unread = 0;
+    this.msgs = []; this.collapsed = window.innerWidth <= 640; this.status = 'connect'; this.unread = 0;
     this.node = el('div', { class: 'chat-box' });
     document.body.appendChild(this.node);
     this._build();

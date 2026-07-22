@@ -1,5 +1,6 @@
 // ====================== 统一房间视图（本地 / 联机共用） ======================
 import { el, clear } from './dom.js';
+import { createThemeToggle } from './theme.js';
 import { MODE, MODE_NAME, IDENTITY, IDENTITY_NAME, FACTION_COLOR, PACK, PACK_NAME } from '../engine/constants.js';
 
 export const AI_DIFFICULTIES = [
@@ -41,8 +42,15 @@ export function renderRoomView(container, state, h) {
   // 头部
   root.appendChild(el('div', { class: 'rv-head' }, [
     el('div', { class: 'rv-title', text: state.isLocal ? '单机房间' : '联机房间' }),
-    state.code ? el('div', { class: 'rv-code', text: `房间号 ${state.code}` }) : null,
+    state.code ? el('div', { class: 'rv-code-row' }, [
+      el('div', { class: 'rv-code', text: `房间号 ${state.code}` }),
+      h.onCopyCode ? el('button', { class: 'rv-copy-btn', text: '复制', onclick: () => h.onCopyCode() }) : null,
+    ]) : null,
     state.code ? el('div', { class: 'rv-tip', text: '把房间号发给朋友，让其「加入房间」。' }) : null,
+    state.connectionStatus ? el('div', { class: `rv-net-status ${state.connectionStatus}` }, [
+      el('span', { class: 'rv-net-dot' }),
+      el('span', { text: ({ connect: '联机正常', reconnect: '正在重连', offline: '连接已断开' })[state.connectionStatus] || '连接中' }),
+    ]) : null,
   ]));
 
   // 武将包选择
@@ -86,10 +94,10 @@ export function renderRoomView(container, state, h) {
     if (state.canEdit) return state.isLocal ? true : s.kind === 'human';
     return !!s.isYou;
   };
-  // 某来源座位的可换目标：本地=其他任意座位；联机=其他真人座位
+  // 所有其它座位均可作为目标：有人则互换，无人则直接移入该空位。
   const swapTargets = (i) => state.seats
     .map((s, j) => ({ s, j }))
-    .filter(({ s, j }) => j !== i && (state.isLocal ? true : s.kind === 'human'));
+    .filter(({ j }) => j !== i);
   state.seats.forEach((s, i) => {
     const facecls = s.kind === 'empty' ? 'empty' : (s.kind === 'ai' ? 'ai' : 'human');
     const children = [
@@ -122,7 +130,7 @@ export function renderRoomView(container, state, h) {
       dataset: { idx: String(i) },
     }, children));
   });
-  const swapHint = state.canEdit ? '（点座位右侧「⇄换座」选择目标；✕ 踢出）' : (state.canSwap ? '（点你座位右侧「⇄换座」申请换位）' : '');
+  const swapHint = state.canEdit ? '（可换到任意位置；✕ 踢出）' : (state.canSwap ? '（可申请换到任意位置）' : '');
   const seatSection = el('div', { class: 'rv-section' }, [
     el('div', { class: 'rv-label', text: `座位（${state.seats.filter((s) => s.kind !== 'empty').length}/${state.seats.length}）${swapHint}` }),
     seatGrid,
@@ -170,6 +178,7 @@ export function renderRoomView(container, state, h) {
   root.appendChild(actions);
 
   container.appendChild(root);
+  if (state.showThemeToggle) container.appendChild(createThemeToggle());
 }
 
 // ===== 换座下拉栏（精致小浮层，支持鼠标/触屏） =====

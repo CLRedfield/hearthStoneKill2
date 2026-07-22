@@ -20,18 +20,25 @@ let CHAT = null; // 聊天面板（整局复用，挂在 body 上）
 
 // ---------- 入口 ----------
 export async function startOnlineFlow(lobby) {
-  const broker = await promptConnect();
-  if (broker === null) return;
-  try {
-    toast('正在连接公共服务器…');
-    BUS = new MqttBus(broker);
-    await BUS.connect();
-    toast('已连接 ✓', 'info', 1200);
-  } catch (e) {
-    toast('连接失败：' + (e.message || '无法连接 broker，可在弹层中更换服务器'), 'error', 4200);
-    return;
+  const preferred = await promptConnect();
+  if (preferred === null) return;
+  const candidates = [preferred, ...BROKER_ALTERNATIVES].filter((url, i, all) => url && all.indexOf(url) === i);
+  let lastError = null;
+  for (const broker of candidates) {
+    toast(`正在连接 ${broker.replace('wss://', '').replace('/mqtt', '')}…`);
+    const bus = new MqttBus(broker);
+    try {
+      await bus.connect();
+      BUS = bus;
+      toast('联机服务器已连接 ✓', 'info', 1200);
+      promptCreateOrJoin(lobby);
+      return;
+    } catch (e) {
+      lastError = e;
+      bus.end();
+    }
   }
-  promptCreateOrJoin(lobby);
+  toast('所有公共服务器均连接失败：' + (lastError?.message || '请检查网络后重试'), 'error', 5000);
 }
 
 function promptConnect() {
@@ -41,7 +48,7 @@ function promptConnect() {
       el('button', { class: 'broker-alt', text: u.replace('wss://', '').replace('/mqtt', ''), onclick: () => { input.value = u; } })
     ));
     const body = el('div', { class: 'env-body' }, [
-      el('p', { class: 'env-hint', text: '使用免费公共 MQTT 服务器中转消息，无需注册、无需备案。默认 EMQX；若连接失败可点下方按钮更换服务器。' }),
+      el('p', { class: 'env-hint', text: '选择首选公共服务器；连接失败时会自动尝试备用线路。无需注册。' }),
       input,
       el('div', { class: 'broker-label', text: '备用服务器：' }), alts,
     ]);
@@ -49,7 +56,7 @@ function promptConnect() {
     ov = openOverlay({
       title: '进入联机大厅', bodyNode: body,
       buttons: [
-        { label: '连接', primary: true, onClick: () => { const v = input.value.trim(); if (!v) return toast('请输入服务器地址'); ov.close(); resolve(v); } },
+        { label: '智能连接', primary: true, onClick: () => { const v = input.value.trim(); if (!v) return toast('请输入服务器地址'); ov.close(); resolve(v); } },
         { label: '取消', onClick: () => { ov.close(); resolve(null); } },
       ],
     });
@@ -112,7 +119,7 @@ function promptRoomCode() {
     let ov = openOverlay({
       title: '加入房间', bodyNode: input,
       buttons: [
-        { label: '加入', primary: true, onClick: () => { const v = input.value.trim().toUpperCase(); if (!v) return; ov.close(); resolve(v); } },
+        { label: '加入', primary: true, onClick: () => { const v = input.value.trim().toUpperCase(); if (!/^[A-Z2-9]{6}$/.test(v)) return toast('请输入正确的 6 位房间号'); ov.close(); resolve(v); } },
         { label: '取消', onClick: () => { ov.close(); resolve(null); } },
       ],
     });
@@ -121,29 +128,110 @@ function promptRoomCode() {
 
 // ---------- 房间等待界面 ----------
 const MAX_ROOM = 12; // 含观战者的房间总人数上限
+function roomCapacity(room) { return modeCapacity(room.mode, room.count) || 0; }
+
+// 联机房间使用显式 seat 编号，空位因此可以真实存在；旧房间数据仍可自动迁移。
+export function ensureRoomSeats(room) {
+  const players = room.players || (room.players = []);
+  const cap = roomCapacity(room);
+  const used = new Set();
+  const legacy = [];
+  players.forEach((p) => {
+    const hasSeat = Object.prototype.hasOwnProperty.call(p, 'seat');
+    if (Number.isInteger(p.seat) && p.seat >= 0 && p.seat < cap && !used.has(p.seat)) used.add(p.seat);
+    else if (!hasSeat) legacy.push(p);
+    else p.seat = null;
+  });
+  legacy.forEach((p) => {
+    const seat = Array.from({ length: cap }, (_, i) => i).find((i) => !used.has(i));
+    p.seat = seat ?? null;
+    if (seat != null) used.add(seat);
+  });
+  return room;
+}
+
+export function reflowRoomSeats(room) {
+  const cap = roomCapacity(room);
+  (room.players || []).forEach((p, i) => { p.seat = i < cap ? i : null; });
+}
+
+export function playersBySeat(room) {
+  ensureRoomSeats(room);
+  const seats = new Array(roomCapacity(room)).fill(null);
+  (room.players || []).forEach((p) => { if (Number.isInteger(p.seat) && p.seat < seats.length) seats[p.seat] = p; });
+  return seats;
+}
+
+export function spectatorPlayers(room) {
+  ensureRoomSeats(room);
+  const cap = roomCapacity(room);
+  return (room.players || []).filter((p) => !Number.isInteger(p.seat) || p.seat < 0 || p.seat >= cap);
+}
+
+export function firstOpenSeat(room) { return playersBySeat(room).findIndex((p) => !p); }
+export function playerAtSeat(room, seat) { return (room.players || []).find((p) => p.seat === seat) || null; }
+
+export function swapRoomSeat(room, fromSeat, toSeat) {
+  const cap = roomCapacity(room);
+  if (!Number.isInteger(fromSeat) || !Number.isInteger(toSeat) || fromSeat < 0 || toSeat < 0 || fromSeat >= cap || toSeat >= cap || fromSeat === toSeat) return false;
+  const moving = playerAtSeat(room, fromSeat);
+  if (!moving) return false;
+  const target = playerAtSeat(room, toSeat);
+  moving.seat = toSeat;
+  if (target) target.seat = fromSeat;
+  return true;
+}
+
+async function copyRoomCode(code) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(code);
+    toast('房间号已复制');
+  } catch (e) {
+    window.prompt('复制房间号', code);
+  }
+}
+
 function enterRoom(lobby, code, myId, isHost, cfg) {
   const T = topics(code);
   let room = isHost
-    ? { code, mode: cfg.mode, count: cfg.count, pack: cfg.pack || PACK.SGS, hostId: myId, players: [{ id: myId, name: lobby.name || '房主' }], status: 'waiting', aiDifficulty: 'normal' }
+    ? { code, mode: cfg.mode, count: cfg.count, pack: cfg.pack || PACK.SGS, hostId: myId, players: [{ id: myId, name: lobby.name || '房主', seat: 0 }], status: 'waiting', aiDifficulty: 'normal' }
     : { code, players: [], count: 0, mode: '', pack: PACK.SGS, status: 'waiting', hostId: null, aiDifficulty: 'normal' };
+  ensureRoomSeats(room);
   let started = false;       // 是否正在对局中
   let screen = null;
   let selectedSeat = null;
   let wasIn = false;
   let gameCleanup = [];
+  let netStatus = BUS.connected ? 'connect' : 'reconnect';
+  let roomSeen = isHost;
 
   // 聊天面板（创建一次，跨房间/对局保留）
-  if (!CHAT) {
-    CHAT = new ChatBox(BUS, code, { id: myId, name: lobby.name || '玩家' });
-    BUS.onStatus((s) => {
-      CHAT.setStatus(s);
-      if (s === 'offline') toast('⚠ 连接断开，正在重连…', 'error', 2500);
-      else if (s === 'connect') toast('✓ 已重新连接', 'info', 1500);
-    });
-  }
+  if (!CHAT) CHAT = new ChatBox(BUS, code, { id: myId, name: lobby.name || '玩家' });
 
-  const publishLobby = () => BUS.pub(T.lobby, room, { retain: true });
+  const publishLobby = () => { ensureRoomSeats(room); BUS.pub(T.lobby, room, { retain: true }); };
+  const sendJoin = () => BUS.pub(T.join, { id: myId, name: lobby.name || '玩家' }, { qos: 1 });
+  BUS.onStatus((s) => {
+    netStatus = s;
+    CHAT?.setStatus(s);
+    if (s === 'offline') toast('⚠ 连接断开，正在自动重连…', 'error', 2500);
+    else if (s === 'connect') {
+      toast('✓ 联机已恢复', 'info', 1500);
+      if (isHost) publishLobby(); else if (!started) sendJoin();
+    }
+    if (!started && screen) render(room);
+  });
   const cleanupGame = () => { gameCleanup.forEach((fn) => { try { fn(); } catch (e) {} }); gameCleanup = []; };
+  const exitRoom = async () => {
+    if (isHost) {
+      room.status = 'closed';
+      publishLobby();
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      await BUS.clearRetained(T.lobby);
+    }
+    BUS?.end();
+    location.reload();
+  };
 
   const showRoom = () => {
     cleanupGame();
@@ -164,13 +252,18 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
   // 房主：开始一局
   const startHostGame = () => {
     started = true;
-    const cap = modeCapacity(room.mode, room.count);
-    const seatHumans = room.players.slice(0, cap);
-    const spectators = room.players.slice(cap);
+    const cap = roomCapacity(room);
+    const seatHumans = playersBySeat(room);
+    const spectators = spectatorPlayers(room);
     const aiDiffs = room.aiDifficulties || {};
-    const seats = seatHumans.map((p) => ({ id: p.id, name: p.name, isHuman: true }));
     let ai = 0;
-    while (seats.length < cap) { const idx = seats.length; seats.push({ id: 'ai' + ai, name: AI_FILL[ai] || ('AI' + ai), isHuman: false, _diff: aiDiffs[idx] || 'normal' }); ai++; }
+    const seats = seatHumans.map((p, idx) => {
+      if (p) return { id: p.id, name: p.name, isHuman: true };
+      const id = 'ai' + ai;
+      const seat = { id, name: AI_FILL[ai] || ('AI' + ai), isHuman: false, _diff: aiDiffs[idx] || 'normal' };
+      ai++;
+      return seat;
+    });
     (room.players || []).forEach((p) => BUS.clearRetained(T.state(p.id)));
     BUS.clearRetained(T.spec);
     room.status = 'playing'; room.spectators = spectators.map((p) => p.id);
@@ -193,9 +286,9 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
   // 客户端：进入对局（玩家 / 观战），订阅登记到 gameCleanup 以便再来一局时清理
   const enterClientGame = () => {
     started = true;
-    const cap = modeCapacity(room.mode, room.count);
-    const idx = (room.players || []).findIndex((p) => p.id === myId);
-    const spectator = !(idx >= 0 && idx < cap);
+    const cap = roomCapacity(room);
+    const own = (room.players || []).find((p) => p.id === myId);
+    const spectator = !own || !Number.isInteger(own.seat) || own.seat < 0 || own.seat >= cap;
     const vid = spectator ? '__spectator__' : myId;
     const viewEngine = new ViewEngine(vid);
     const ui = new GameUI(viewEngine, vid, { spectator, rematch: { label: '入座下一局', fn: clientRematch } });
@@ -219,13 +312,13 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
     }
   };
 
-  const clientRematch = () => { BUS.pub(T.join, { id: myId, name: lobby.name || '玩家' }, { qos: 1 }); toast('已入座，等待房主开始下一局'); };
+  const clientRematch = () => { sendJoin(); toast('已重新报到，等待房主开始下一局'); };
 
   const render = (r) => {
-    const cap = modeCapacity(r.mode, r.count) || 0;
-    const players = r.players || [];
-    const seatHumans = players.slice(0, cap);
-    const specHumans = players.slice(cap);
+    ensureRoomSeats(r);
+    const cap = roomCapacity(r);
+    const seatHumans = playersBySeat(r);
+    const specHumans = spectatorPlayers(r);
     const aiDiffs = r.aiDifficulties || {};
     const seats = [];
     for (let i = 0; i < cap; i++) {
@@ -240,18 +333,21 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       code, mode: r.mode || MODE.ZHANGZHENG, count: r.count || 5, seats, spectators, pack: r.pack || PACK.SGS,
       isLocal: false, canEdit: isHost,
       canSwap: isHost || allowSeatChange, canKick: isHost,
+      connectionStatus: netStatus,
+      showThemeToggle: true,
       showSeatChangeToggle: isHost, allowSeatChange,
       selectedSeat: isHost ? selectedSeat : null,
       waitingNote: amSpec ? '名额已满，你将作为观战者进入' : '等待房主开始…',
     };
     const h = {
+      onCopyCode: () => copyRoomCode(code),
       onPack: (pk) => { room.pack = pk; publishLobby(); render(room); },
-      onMode: (m) => { room.mode = m; if (m === MODE.DUEL2V2) room.count = 4; else if (m === MODE.SOLO) room.count = 2; else if (room.count < 5) room.count = 5; selectedSeat = null; publishLobby(); render(room); },
-      onCount: (n) => { room.count = n; selectedSeat = null; publishLobby(); render(room); },
+      onMode: (m) => { room.mode = m; if (m === MODE.DUEL2V2) room.count = 4; else if (m === MODE.SOLO) room.count = 2; else if (room.count < 5) room.count = 5; reflowRoomSeats(room); selectedSeat = null; publishLobby(); render(room); },
+      onCount: (n) => { room.count = n; reflowRoomSeats(room); selectedSeat = null; publishLobby(); render(room); },
       onSeatDifficulty: (i) => { if (!room.aiDifficulties) room.aiDifficulties = {}; room.aiDifficulties[i] = nextDiff(room.aiDifficulties[i]); publishLobby(); render(room); },
       onToggleSeatChange: () => { room.allowSeatChange = !room.allowSeatChange; publishLobby(); render(room); },
       onKick: (i) => {
-        const p = (room.players || [])[i];
+        const p = playerAtSeat(room, i);
         if (!p || p.id === room.hostId) return;
         let ov;
         ov = openOverlay({
@@ -265,30 +361,28 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       },
       onSeatClick: (i) => {
         if (isHost) {
-          if (seats[i]?.kind !== 'human') { selectedSeat = null; render(room); return; }
-          if (selectedSeat == null) selectedSeat = i;
+          if (selectedSeat == null) { if (seats[i]?.kind === 'human') selectedSeat = i; }
           else if (selectedSeat === i) selectedSeat = null;
-          else { const a = room.players[selectedSeat], b = room.players[i]; room.players[selectedSeat] = b; room.players[i] = a; selectedSeat = null; publishLobby(); }
+          else { swapRoomSeat(room, selectedSeat, i); selectedSeat = null; publishLobby(); }
           render(room);
         } else if (allowSeatChange) {
-          if (seats[i]?.kind !== 'human' || seats[i].isYou) return;
+          if (seats[i]?.isYou) return;
           BUS.pub(T.move, { id: myId, toIndex: i }, { qos: 1 });
-          toast('已申请换位…');
+          toast(`已申请换到 #${i + 1}…`);
         }
       },
-      // 拖动换位：房主可把任一真人座位拖到另一真人座位互换；非房主仅能拖动自己的座位申请换位
+      // 有人则互换，无人则直接移动到该空位。
       onSeatSwap: (a, b) => {
         if (a === b) return;
         if (isHost) {
-          if (seats[a]?.kind !== 'human' || seats[b]?.kind !== 'human') return;
-          const pa = room.players[a], pb = room.players[b];
-          room.players[a] = pb; room.players[b] = pa; selectedSeat = null; publishLobby(); render(room);
+          if (seats[a]?.kind !== 'human' || !swapRoomSeat(room, a, b)) return;
+          selectedSeat = null; publishLobby(); render(room);
         } else if (allowSeatChange) {
-          if (seats[a]?.isYou && seats[b]?.kind === 'human') { BUS.pub(T.move, { id: myId, toIndex: b }, { qos: 1 }); toast('已申请换位…'); }
+          if (seats[a]?.isYou) { BUS.pub(T.move, { id: myId, toIndex: b }, { qos: 1 }); toast(`已申请换到 #${b + 1}…`); }
         }
       },
       onStart: () => startHostGame(),
-      onExit: () => { BUS?.end(); location.reload(); },
+      onExit: () => exitRoom(),
     };
     renderRoomView(screen, state, h);
   };
@@ -298,20 +392,18 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       if (!room || room.status !== 'waiting' || !msg?.id) return;
       if (room.players.some((p) => p.id === msg.id)) { publishLobby(); return; }
       if (room.players.length >= MAX_ROOM) return;
-      room.players.push({ id: msg.id, name: msg.name || '玩家' });
+      const seat = firstOpenSeat(room);
+      room.players.push({ id: msg.id, name: msg.name || '玩家', seat: seat >= 0 ? seat : null });
       publishLobby(); render(room);
-      const cap = modeCapacity(room.mode, room.count);
-      toast(`${msg.name || '玩家'} ${room.players.length > cap ? '进入观战席' : '加入了房间'}`);
+      toast(`${msg.name || '玩家'} ${seat >= 0 ? `加入了 #${seat + 1}` : '进入观战席'}`);
     });
     // 非房主换座申请
     BUS.sub(T.move, (msg) => {
       if (!room.allowSeatChange || room.status !== 'waiting' || !msg?.id) return;
-      const from = room.players.findIndex((p) => p.id === msg.id);
+      const moving = room.players.find((p) => p.id === msg.id);
+      const from = moving?.seat;
       const to = msg.toIndex;
-      const cap = modeCapacity(room.mode, room.count);
-      if (from < 0 || to == null || to < 0 || to >= room.players.length || to >= cap || from === to) return;
-      const a = room.players[from], b = room.players[to];
-      room.players[from] = b; room.players[to] = a;
+      if (!swapRoomSeat(room, from, to)) return;
       publishLobby(); render(room);
     });
     showRoom();
@@ -319,7 +411,15 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
   } else {
     BUS.sub(T.lobby, (r) => {
       if (!r || !r.code) return;
+      roomSeen = true;
+      ensureRoomSeats(r);
       room = r;
+      if (r.status === 'closed') {
+        toast('房主已关闭房间', 'error', 2500);
+        BUS?.end();
+        setTimeout(() => location.reload(), 1600);
+        return;
+      }
       const inRoom = (r.players || []).some((p) => p.id === myId);
       // 被房主踢出
       if (wasIn && !inRoom && r.status === 'waiting') {
@@ -334,9 +434,11 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       if (r.status === 'waiting' && started) { showRoom(); return; } // 房主再来一局 → 回到房间
       if (r.status === 'waiting') render(r);
     });
-    const join = () => BUS.pub(T.join, { id: myId, name: lobby.name || '玩家' });
-    join();
-    setTimeout(() => { if (room.status === 'waiting' && !room.players?.some((p) => p.id === myId)) join(); }, 1600);
+    sendJoin();
+    setTimeout(() => { if (!room.players?.some((p) => p.id === myId)) sendJoin(); }, 1600);
+    setTimeout(() => {
+      if (!roomSeen) toast('未找到该房间，请核对房间号或确认房主仍在线', 'error', 5000);
+    }, 5500);
     showRoom();
   }
 }

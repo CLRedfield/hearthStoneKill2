@@ -110,7 +110,7 @@ export class AIAgent {
   // ---------- 桃 ----------
   askPeach(req) {
     const { engine, player, dying } = req;
-    const opts = peachOptions(engine, player, true);
+    const opts = peachOptions(engine, player, true, dying);
     if (!opts.length) return null;
     if (dying === player) return { card: opts[0].card };
     // 救人：盟友且自身不危

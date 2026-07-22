@@ -8,7 +8,7 @@
     radial-gradient(900px 520px at 50% 38%, rgba(60,46,32,.6), transparent 70%),
     repeating-linear-gradient(115deg, rgba(255,255,255,.012) 0 2px, transparent 2px 7px),
     linear-gradient(180deg, #1c1611, #0f0b08);
-  padding: 0 12px 6px;
+  padding: env(safe-area-inset-top, 0px) calc(12px + env(safe-area-inset-right, 0px)) max(6px, env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
 }
 
 /* 顶栏 */
@@ -298,12 +298,13 @@
 
 /* 手机 */
 @media (max-width: 640px) {
-  .table-wrap { padding: 0 6px 4px; }
+  .table-wrap { padding: env(safe-area-inset-top, 0px) calc(6px + env(safe-area-inset-right, 0px)) max(4px, env(safe-area-inset-bottom, 0px)) calc(6px + env(safe-area-inset-left, 0px)); }
   .topbar { padding: 6px 8px; font-size: 12px; }
   .tb-left { gap: 8px; }
   .tb-menu-btn { width: 32px; height: 28px; font-size: 14px; }
   .tb-mode { letter-spacing: 1px; }
   .tb-phase { gap: 6px; font-size: 12px; }
+  @media (max-width: 380px) { .tb-mode { display: none; } .tb-deck { gap: 6px; } }
   /* 对手区占据剩余空间并可滚动，确保自己面板+手牌+操作按钮始终固定在底部可见可点 */
   .opp-grid { gap: 6px; padding: 8px 2px 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto; align-content: flex-start; }
   .table-center { flex: 0 0 auto; min-height: 0; padding: 2px 0; }
@@ -325,14 +326,17 @@
   .cf-name { font-size: 14px; } .cf-rank { font-size: 13px; } .cf-suit { font-size: 11px; } .cf-type { font-size: 8px; }
   /* 手牌横向滚动，避免竖屏堆叠占满屏幕 */
   .hand-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; min-height: 76px; padding: 0 4px 4px; -webkit-overflow-scrolling: touch; max-width: 100vw; }
-  .hand-row .card-face { flex: 0 0 auto; }
-  .action-bar { padding: 6px 0 2px; gap: 5px; }
+  .hand-row .card-face { flex: 0 0 auto; touch-action: manipulation; }
+  .hand-row { scrollbar-width: none; }
+  .hand-row::-webkit-scrollbar, .ab-controls::-webkit-scrollbar { display: none; }
+  .action-bar { position: relative; z-index: 25; padding: 6px 0 max(10px, env(safe-area-inset-bottom, 0px)); gap: 5px; background: linear-gradient(0deg, var(--ink-2) 68%, transparent); }
   .ab-title { font-size: 14px; }
-  .ab-controls { gap: 6px; }
+  .ab-controls { width: 100%; gap: 7px; padding: 0 6px 2px; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+  .ab-controls .btn { flex: 0 0 auto; min-height: 44px; padding: 9px 16px; touch-action: manipulation; }
   /* 日志收到顶部、缩小；聊天收窄 */
   .log-panel { width: 144px; bottom: auto; top: 44px; left: 6px; font-size: 11px; padding: 5px 7px; opacity: .92; }
   .log-body { max-height: 84px; }
-  .chat-box { width: 196px; right: 6px; bottom: 6px; }
+  .chat-box { width: min(280px, calc(100vw - 12px)); right: calc(6px + env(safe-area-inset-right, 0px)); top: calc(48px + env(safe-area-inset-top, 0px)); bottom: auto; max-height: calc(100dvh - 58px - env(safe-area-inset-top, 0px)); }
   .chat-box.collapsed { width: 128px; }
   .chat-msgs { height: 108px; }
   .fx-judge .fxj-card { width: 78px; height: 108px; }

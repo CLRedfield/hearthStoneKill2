@@ -38,12 +38,13 @@ export function shaOptions(engine, p) {
 }
 
 // 可作为【桃】使用的选项（含濒死救援）
-export function peachOptions(engine, p, forDying = false) {
+export function peachOptions(engine, p, forDying = false, dying = null) {
   const out = [];
   if (p.flags?.onlyShaShan) return out; // 专注意志（红判定）：只能使用杀/闪
   if (hasSkill(p, 'haigu') && !forDying) return out; // 骸骨重铸：桃仅濒死可用
   p.hand.forEach((c) => { if (isTao(c) && usable(c)) out.push({ label: c.name, card: c }); });
-  p.hand.forEach((c) => { if (isJiu(c) && forDying && usable(c)) out.push({ label: c.name, card: c }); });
+  // 【酒】只能在响应者本人濒死时自救，不能用于救援其他角色。
+  p.hand.forEach((c) => { if (isJiu(c) && forDying && dying === p && usable(c)) out.push({ label: c.name, card: c }); });
   if (hasSkill(p, 'jijiu')) {
     p.hand.forEach((c) => { if (c.red && !isTao(c) && usable(c)) out.push({ label: '红牌→桃(急救)', card: virtualCard('tao', [c], { suit: c.suit, red: true }) }); });
   }

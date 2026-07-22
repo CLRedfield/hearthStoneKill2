@@ -99,8 +99,13 @@ export class MqttBus {
 
   // 清除某 retained 主题
   clearRetained(topic) {
-    if (!this.client) return;
-    this.client.publish(topic, '', { qos: 0, retain: true });
+    if (!this.client) return Promise.resolve();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => { if (!settled) { settled = true; resolve(); } };
+      setTimeout(finish, 900);
+      this.client.publish(topic, '', { qos: 1, retain: true }, finish);
+    });
   }
 
   end() { try { this.client?.end(true); } catch (e) {} }
