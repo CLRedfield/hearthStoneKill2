@@ -1388,11 +1388,35 @@ export const HS_SKILLS = {
     },
   },
   jianyu: {
-    name: '箭语', desc: '锁定技：你用卡牌造成伤害后，重置【利箭】（本回合可再次发动）。',
+    name: '箭语', desc: '锁定技，每回合限一次：你造成伤害后，抉择：①复原【利箭】；②回复1点体力并摸一张牌。',
     triggers: {
-      async dealDamage(engine, { source, card }) {
-        if (!card || !source) return;
-        if (source.flags.lijian2Used) { source.flags.lijian2Used = false; engine.log(`${source.name} 发动【箭语】，重置【利箭】。`, 'good'); }
+      async dealDamage(engine, { source }) {
+        if (!source || source.skillState.jianyuRound === engine.round) return;
+        source.skillState.jianyuRound = engine.round;
+        let choice;
+        if (engine.agentOf(source)?.kind === 'ai') {
+          const canReuse = engine.turnOwner === source && source.flags.lijian2Used && source.hand.some((c) => !c.frozen);
+          choice = canReuse && source.hp >= source.maxHp ? 'reset' : 'recover';
+        } else {
+          const r = await engine.ask(source, {
+            type: REQ.CHOOSE_OPTION,
+            title: '箭语：选择一项',
+            options: [
+              { value: 'reset', label: '复原【利箭】' },
+              { value: 'recover', label: '回复1点体力并摸一张牌' },
+            ],
+          });
+          choice = r?.value || 'recover';
+        }
+        if (choice === 'reset') {
+          source.flags.lijian2Used = false;
+          engine.log(`${source.name} 发动【箭语】，复原【利箭】。`, 'good');
+          engine.changed();
+        } else {
+          engine.log(`${source.name} 发动【箭语】，回复1点体力并摸一张牌。`, 'good');
+          await engine.recover(source, 1);
+          if (source.alive && !engine.over) engine.drawCards(source, 1);
+        }
       },
     },
   },
