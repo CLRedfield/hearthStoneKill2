@@ -131,7 +131,7 @@ export class GameEngine {
     } else if (this.mode === MODE.ZHANGZHENG) {
       setups = identityDistribution(n);
     } else if (this.mode === MODE.DUEL2V2) {
-      setups = [{ team: TEAM.A }, { team: TEAM.B }, { team: TEAM.A }, { team: TEAM.B }];
+      setups = duel2v2Teams().map((team) => ({ team }));
     } else { // SOLO
       setups = [{ team: TEAM.A }, { team: TEAM.B }];
     }
@@ -1387,8 +1387,12 @@ export function identityDistribution(n) {
     8: [L, Z, Z, F, F, F, F, N],
   };
   const ids = table[n] || table[8];
-  // 主公固定首位，其余打乱
-  const rest = shuffle(ids.slice(1));
-  const arr = [ids[0], ...rest];
-  return arr.map((identity) => ({ identity }));
+  // 所有身份一起洗牌，主公不再与房主或 1 号位绑定。
+  return shuffle(ids).map((identity) => ({ identity }));
+}
+
+// 2v2 标准对位：1、4 号位同队，2、3 号位同队。
+export function duel2v2Teams(outerTeam = TEAM.A) {
+  const innerTeam = outerTeam === TEAM.A ? TEAM.B : TEAM.A;
+  return [outerTeam, innerTeam, innerTeam, outerTeam];
 }

@@ -1,6 +1,7 @@
 // ====================== 应用入口 ======================
 import { Lobby } from './ui/lobby.js';
 import { initTheme } from './ui/theme.js';
+import { resumeOnlineSession } from './net/online.js';
 
 function boot() {
   initTheme();
@@ -9,6 +10,7 @@ function boot() {
   setTimeout(() => {
     const lobby = new Lobby(app);
     lobby.show();
+    resumeOnlineSession(lobby);
   }, 900);
 }
 

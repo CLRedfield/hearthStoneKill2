@@ -2,7 +2,7 @@
 import { el, clear } from './dom.js';
 import { toast, openOverlay } from './prompts.js';
 import { MODE, MODE_NAME, IDENTITY, TEAM, PACK } from '../engine/constants.js';
-import { GameEngine, identityDistribution } from '../engine/game.js';
+import { GameEngine, identityDistribution, duel2v2Teams } from '../engine/game.js';
 import { AIAgent, AI_CHAOS } from '../engine/ai.js';
 import { GameUI, HumanAgent } from './table.js';
 import { startOnlineFlow } from '../net/online.js';
@@ -168,8 +168,10 @@ export class Lobby {
       const ids = buildIdentities(cap, hIdx, this.myIdentity);
       seats.forEach((s, i) => { s.identity = ids[i]; });
     } else if (this.mode === MODE.DUEL2V2) {
-      const evenTeam = (hIdx % 2 === 0) ? this.myTeam : (this.myTeam === TEAM.B ? TEAM.A : TEAM.B);
-      seats.forEach((s, i) => { s.team = (i % 2 === 0) ? evenTeam : (evenTeam === TEAM.A ? TEAM.B : TEAM.A); });
+      const humanIsOuter = hIdx === 0 || hIdx === 3;
+      const outerTeam = humanIsOuter ? this.myTeam : (this.myTeam === TEAM.B ? TEAM.A : TEAM.B);
+      const teams = duel2v2Teams(outerTeam);
+      seats.forEach((s, i) => { s.team = teams[i]; });
     } else {
       seats.forEach((s, i) => { s.team = i === hIdx ? TEAM.A : TEAM.B; });
     }

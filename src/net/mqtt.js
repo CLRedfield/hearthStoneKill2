@@ -37,6 +37,7 @@ export function topics(code) {
     lobby: `${base}/lobby`,           // 房间信息（retained，房主发布）
     join: `${base}/join`,             // 加入请求（玩家发布，房主订阅）
     move: `${base}/move`,             // 换座申请（非房主发布，房主订阅）
+    ready: `${base}/ready`,           // 客户端已完成对局订阅
     act: `${base}/act`,               // 决策应答（玩家发布，房主订阅）
     fx: `${base}/fx`,                 // 动画特效广播（房主发布）
     chat: `${base}/chat`,             // 聊天 / 快捷喊话

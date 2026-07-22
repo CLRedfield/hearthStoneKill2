@@ -17,6 +17,47 @@ import {
 const AI_FILL = ['沧海客', '听雪', '青锋', '踏歌行', '北辰', '醉卧', '孤鸿'];
 let BUS = null; // 当前会话的 MQTT 连接
 let CHAT = null; // 聊天面板（整局复用，挂在 body 上）
+const ONLINE_SESSION_KEY = 'sgs_online_session_v1';
+
+function loadOnlineSession() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(ONLINE_SESSION_KEY) || 'null');
+    return value?.code && value?.myId ? value : null;
+  } catch (e) { return null; }
+}
+
+function storeOnlineSession(value) {
+  try { sessionStorage.setItem(ONLINE_SESSION_KEY, JSON.stringify(value)); } catch (e) {}
+}
+
+function forgetOnlineSession() {
+  try { sessionStorage.removeItem(ONLINE_SESSION_KEY); } catch (e) {}
+}
+
+// 刷新后自动恢复原房间；房主若在对局中刷新，则终止旧局并恢复为等待房间。
+export async function resumeOnlineSession(lobby) {
+  const saved = loadOnlineSession();
+  if (!saved) return false;
+  const preferred = saved.broker || getBroker();
+  const candidates = [preferred, ...BROKER_ALTERNATIVES].filter((url, i, all) => url && all.indexOf(url) === i);
+  toast(`正在重新连接房间 ${saved.code}…`);
+  let lastError = null;
+  for (const broker of candidates) {
+    const bus = new MqttBus(broker);
+    try {
+      await bus.connect();
+      BUS = bus;
+      enterRoom(lobby, saved.code, saved.myId, !!saved.isHost, saved.cfg || null, saved.room || null);
+      toast(`已重新连接房间 ${saved.code}`, 'info', 1800);
+      return true;
+    } catch (e) {
+      lastError = e;
+      bus.end();
+    }
+  }
+  toast('自动重连失败：' + (lastError?.message || '请稍后重试'), 'error', 4000);
+  return false;
+}
 
 // ---------- 入口 ----------
 export async function startOnlineFlow(lobby) {
@@ -192,12 +233,25 @@ async function copyRoomCode(code) {
   }
 }
 
-function enterRoom(lobby, code, myId, isHost, cfg) {
+function enterRoom(lobby, code, myId, isHost, cfg, restoredRoom = null) {
   const T = topics(code);
+  const freshHostRoom = { code, mode: cfg?.mode || MODE.ZHANGZHENG, count: cfg?.count || 5, pack: cfg?.pack || PACK.SGS, hostId: myId, players: [{ id: myId, name: lobby.name || '房主', seat: 0 }], status: 'waiting', aiDifficulty: 'normal' };
   let room = isHost
-    ? { code, mode: cfg.mode, count: cfg.count, pack: cfg.pack || PACK.SGS, hostId: myId, players: [{ id: myId, name: lobby.name || '房主', seat: 0 }], status: 'waiting', aiDifficulty: 'normal' }
+    ? (restoredRoom?.code === code ? restoredRoom : freshHostRoom)
     : { code, players: [], count: 0, mode: '', pack: PACK.SGS, status: 'waiting', hostId: null, aiDifficulty: 'normal' };
+  const interruptedGame = isHost && room.status === 'playing';
+  if (isHost) {
+    room.hostId = myId;
+    const host = (room.players || (room.players = [])).find((p) => p.id === myId);
+    if (host) host.name = lobby.name || host.name || '房主';
+    else room.players.unshift({ id: myId, name: lobby.name || '房主', seat: 0 });
+    if (room.status === 'playing') { room.status = 'waiting'; delete room.spectators; delete room.gameId; }
+  }
   ensureRoomSeats(room);
+  if (interruptedGame) {
+    (room.players || []).forEach((p) => { BUS.clearRetained(T.state(p.id)); BUS.clearRetained(T.req(p.id)); });
+    BUS.clearRetained(T.spec);
+  }
   let started = false;       // 是否正在对局中
   let screen = null;
   let selectedSeat = null;
@@ -205,19 +259,28 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
   let gameCleanup = [];
   let netStatus = BUS.connected ? 'connect' : 'reconnect';
   let roomSeen = isHost;
+  const rememberSession = () => storeOnlineSession({
+    code, myId, isHost, broker: BUS?.broker || getBroker(), name: lobby.name || '玩家',
+    cfg: { mode: room.mode || cfg?.mode, count: room.count || cfg?.count, pack: room.pack || cfg?.pack || PACK.SGS },
+    room: isHost ? room : null,
+  });
+  const sendReady = () => { if (!isHost && room.gameId) BUS.pub(T.ready, { playerId: myId, gameId: room.gameId }, { qos: 1 }); };
+  rememberSession();
 
   // 聊天面板（创建一次，跨房间/对局保留）
   if (!CHAT) CHAT = new ChatBox(BUS, code, { id: myId, name: lobby.name || '玩家' });
 
-  const publishLobby = () => { ensureRoomSeats(room); BUS.pub(T.lobby, room, { retain: true }); };
-  const sendJoin = () => BUS.pub(T.join, { id: myId, name: lobby.name || '玩家' }, { qos: 1 });
+  const publishLobby = () => { ensureRoomSeats(room); rememberSession(); BUS.pub(T.lobby, room, { retain: true }); };
+  const sendJoin = () => { rememberSession(); BUS.pub(T.join, { id: myId, name: lobby.name || '玩家' }, { qos: 1 }); };
   BUS.onStatus((s) => {
     netStatus = s;
     CHAT?.setStatus(s);
     if (s === 'offline') toast('⚠ 连接断开，正在自动重连…', 'error', 2500);
     else if (s === 'connect') {
       toast('✓ 联机已恢复', 'info', 1500);
-      if (isHost) publishLobby(); else if (!started) sendJoin();
+      if (isHost) publishLobby();
+      else if (!started) sendJoin();
+      else sendReady();
     }
     if (!started && screen) render(room);
   });
@@ -229,12 +292,14 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       await new Promise((resolve) => setTimeout(resolve, 180));
       await BUS.clearRetained(T.lobby);
     }
+    forgetOnlineSession();
     BUS?.end();
     location.reload();
   };
 
   const showRoom = () => {
     cleanupGame();
+    started = false;
     clear(lobby.root);
     screen = el('div', { class: 'room-screen' });
     lobby.root.appendChild(screen);
@@ -243,17 +308,19 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
 
   // 房主：再来一局 → 回到房间（所有人含淘汰/观战者仍在名单里）
   const backToRoom = () => {
-    (room.players || []).forEach((p) => BUS.clearRetained(T.state(p.id)));
+    (room.players || []).forEach((p) => { BUS.clearRetained(T.state(p.id)); BUS.clearRetained(T.req(p.id)); });
     BUS.clearRetained(T.spec);
-    room.status = 'waiting'; delete room.spectators; selectedSeat = null; started = false;
+    room.status = 'waiting'; delete room.spectators; delete room.gameId; selectedSeat = null; started = false;
     publishLobby(); showRoom();
   };
 
   // 房主：开始一局
-  const startHostGame = () => {
-    started = true;
+  const startHostGame = async () => {
+    if (started) return;
     const cap = roomCapacity(room);
     const seatHumans = playersBySeat(room);
+    if (!seatHumans.some((p) => p?.id === myId)) return toast('房主需要先坐入任意一个参战座位', 'error');
+    started = true;
     const spectators = spectatorPlayers(room);
     const aiDiffs = room.aiDifficulties || {};
     let ai = 0;
@@ -264,14 +331,13 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       ai++;
       return seat;
     });
-    (room.players || []).forEach((p) => BUS.clearRetained(T.state(p.id)));
+    (room.players || []).forEach((p) => { BUS.clearRetained(T.state(p.id)); BUS.clearRetained(T.req(p.id)); });
     BUS.clearRetained(T.spec);
-    room.status = 'playing'; room.spectators = spectators.map((p) => p.id);
-    publishLobby();
+    room.gameId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
     const engine = new GameEngine({ mode: room.mode, seats, pack: room.pack || PACK.SGS });
     const ui = mountHostGame(lobby.root, engine, myId, { rematch: { label: '再来一局', fn: backToRoom } });
-    const hub = new MqttHostHub(code, engine, myId, spectators.length > 0);
+    const hub = new MqttHostHub(code, engine, myId, spectators.length > 0, room.gameId);
     engine.agents = {};
     for (const s of seats) {
       if (s.id === myId) engine.agents[s.id] = new HumanAgent(ui);
@@ -280,6 +346,14 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
     }
     hub.start();
     gameCleanup.push(() => hub.stop());
+    room.status = 'playing'; room.spectators = spectators.map((p) => p.id);
+    publishLobby();
+
+    const remoteIds = seats.filter((s) => s.isHuman && s.id !== myId).map((s) => s.id);
+    if (remoteIds.length) toast('等待其他玩家进入对局…', 'info', 1800);
+    const missing = await hub.waitForReady(remoteIds, 8000);
+    if (missing.length) toast('部分玩家仍在重连，操作请求将自动补发', 'error', 3000);
+    if (!started || room.status !== 'playing') return;
     engine.run().catch((e) => { console.error(e); toast('对局错误', 'error'); });
   };
 
@@ -309,6 +383,7 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
         try { const resp = await human.respond(localReq); BUS.pub(T.act, { reqId: req.reqId, playerId: myId, response: serializeResponse(req.type, resp) }, { qos: 1 }); }
         catch (e) { console.error('client respond', e); BUS.pub(T.act, { reqId: req.reqId, playerId: myId, response: null }, { qos: 1 }); }
       }, { qos: 1 }));
+      sendReady();
     }
   };
 
@@ -413,8 +488,10 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       roomSeen = true;
       ensureRoomSeats(r);
       room = r;
+      rememberSession();
       if (r.status === 'closed') {
         toast('房主已关闭房间', 'error', 2500);
+        forgetOnlineSession();
         BUS?.end();
         setTimeout(() => location.reload(), 1600);
         return;
@@ -424,6 +501,7 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       if (wasIn && !inRoom && r.status === 'waiting') {
         wasIn = false;
         toast('你已被房主移出房间', 'error', 2500);
+        forgetOnlineSession();
         BUS?.end();
         setTimeout(() => location.reload(), 1800);
         return;
@@ -453,11 +531,12 @@ function mountHostGame(root, engine, hostId, opts) {
 
 // 房主通讯枢纽
 class MqttHostHub {
-  constructor(code, engine, hostId, hasSpectators = false) {
+  constructor(code, engine, hostId, hasSpectators = false, gameId = null) {
     this.T = topics(code);
-    this.engine = engine; this.hostId = hostId; this.hasSpectators = hasSpectators;
+    this.engine = engine; this.hostId = hostId; this.hasSpectators = hasSpectators; this.gameId = gameId;
     this.reqSeq = 0;
     this.pending = new Map();
+    this.readyPlayers = new Set();
     this._timer = null; this._dirty = false; this._unsubs = []; this.stopped = false;
   }
   start() {
@@ -465,6 +544,9 @@ class MqttHostHub {
     this._unsubs.push(this.engine.on('fx', (e) => BUS.pub(this.T.fx, e, { qos: 0 })));
     this._unsubs.push(this.engine.on('damage', (e) => BUS.pub(this.T.fx, { name: 'damage', targetId: e.target.id, amount: e.amount, nature: e.nature }, { qos: 0 })));
     this._unsubs.push(BUS.sub(this.T.act, (doc) => this.onAction(doc)));
+    this._unsubs.push(BUS.sub(this.T.ready, (doc) => {
+      if (doc?.gameId === this.gameId && doc?.playerId) this.readyPlayers.add(doc.playerId);
+    }));
     this.scheduleBroadcast();
   }
   stop() {
@@ -472,6 +554,17 @@ class MqttHostHub {
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
     this._unsubs.forEach((fn) => { try { fn(); } catch (e) {} });
     this._unsubs = [];
+    for (const pending of this.pending.values()) { BUS.clearRetained(this.T.req(pending.playerId)); pending.d.resolve(null); }
+    this.pending.clear();
+  }
+  async waitForReady(playerIds, timeoutMs = 8000) {
+    const deadline = Date.now() + timeoutMs;
+    let missing = playerIds.filter((id) => !this.readyPlayers.has(id));
+    while (missing.length && Date.now() < deadline && !this.stopped) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      missing = playerIds.filter((id) => !this.readyPlayers.has(id));
+    }
+    return missing;
   }
   scheduleBroadcast() {
     if (this.stopped) return;
@@ -491,14 +584,24 @@ class MqttHostHub {
   async request(playerId, serialReq) {
     const reqId = `${this.hostId}_${++this.reqSeq}`;
     const d = deferred();
-    this.pending.set(reqId, d);
-    BUS.pub(this.T.req(playerId), { reqId, ...serialReq }, { qos: 1 });
-    const timer = setTimeout(() => { if (this.pending.has(reqId)) { this.pending.delete(reqId); d.resolve(null); } }, 45000);
-    const res = await d.promise; clearTimeout(timer); return res;
+    this.pending.set(reqId, { d, playerId });
+    // 决策请求保留到收到响应，晚进入或刷新后的客户端也能继续当前操作。
+    BUS.pub(this.T.req(playerId), { reqId, ...serialReq }, { qos: 1, retain: true });
+    const timer = setTimeout(() => {
+      const pending = this.pending.get(reqId);
+      if (pending) { this.pending.delete(reqId); pending.d.resolve(null); }
+    }, 45000);
+    const res = await d.promise;
+    clearTimeout(timer);
+    await BUS.clearRetained(this.T.req(playerId));
+    return res;
   }
   onAction(doc) {
-    const d = doc && this.pending.get(doc.reqId);
-    if (d) { this.pending.delete(doc.reqId); d.resolve(doc.response); }
+    const pending = doc && this.pending.get(doc.reqId);
+    if (pending && (!doc.playerId || doc.playerId === pending.playerId)) {
+      this.pending.delete(doc.reqId);
+      pending.d.resolve(doc.response);
+    }
   }
 }
 

@@ -130,8 +130,9 @@ export function renderRoomView(container, state, h) {
     }, children));
   });
   const swapHint = state.canEdit ? '（可换到任意位置；✕ 踢出）' : (state.canSwap ? '（可申请换到任意位置）' : '');
+  const teamHint = state.mode === MODE.DUEL2V2 ? '（1、4号位同队；2、3号位同队）' : '';
   const seatSection = el('div', { class: 'rv-section' }, [
-    el('div', { class: 'rv-label', text: `座位（${state.seats.filter((s) => s.kind !== 'empty').length}/${state.seats.length}）${swapHint}` }),
+    el('div', { class: 'rv-label', text: `座位（${state.seats.filter((s) => s.kind !== 'empty').length}/${state.seats.length}）${teamHint}${swapHint}` }),
     seatGrid,
   ]);
   // 房主开关：是否允许玩家自由换座
