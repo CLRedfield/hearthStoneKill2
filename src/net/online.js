@@ -334,7 +334,6 @@ function enterRoom(lobby, code, myId, isHost, cfg) {
       isLocal: false, canEdit: isHost,
       canSwap: isHost || allowSeatChange, canKick: isHost,
       connectionStatus: netStatus,
-      showThemeToggle: true,
       showSeatChangeToggle: isHost, allowSeatChange,
       selectedSeat: isHost ? selectedSeat : null,
       waitingNote: amSpec ? '名额已满，你将作为观战者进入' : '等待房主开始…',

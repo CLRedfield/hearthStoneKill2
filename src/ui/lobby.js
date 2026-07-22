@@ -29,7 +29,7 @@ export class Lobby {
     clear(this.root);
     const stage = el('div', { class: 'lobby' });
     stage.appendChild(this._bg());
-    stage.appendChild(createThemeToggle());
+    if (this.screen === 'home') stage.appendChild(createThemeToggle());
     const content = el('div', { class: 'lobby-content' });
     content.appendChild(this._title(this.screen !== 'home'));
     if (this.screen === 'home') content.appendChild(this._home());

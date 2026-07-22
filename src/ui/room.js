@@ -1,6 +1,5 @@
 // ====================== 统一房间视图（本地 / 联机共用） ======================
 import { el, clear } from './dom.js';
-import { createThemeToggle } from './theme.js';
 import { MODE, MODE_NAME, IDENTITY, IDENTITY_NAME, FACTION_COLOR, PACK, PACK_NAME } from '../engine/constants.js';
 
 export const AI_DIFFICULTIES = [
@@ -178,7 +177,6 @@ export function renderRoomView(container, state, h) {
   root.appendChild(actions);
 
   container.appendChild(root);
-  if (state.showThemeToggle) container.appendChild(createThemeToggle());
 }
 
 // ===== 换座下拉栏（精致小浮层，支持鼠标/触屏） =====

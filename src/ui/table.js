@@ -14,7 +14,6 @@ import {
 import { FxLayer } from './fx.js';
 import { attachTip, hideTip } from './tooltip.js';
 import { openCodex } from './codex.js';
-import { createThemeToggle } from './theme.js';
 
 export class GameUI {
   constructor(engine, viewerId, opts = {}) {
@@ -102,7 +101,6 @@ export class GameUI {
     return el('div', { class: 'topbar' }, [
       el('div', { class: 'tb-left' }, [
         el('button', { class: 'tb-menu-btn', title: '菜单', onclick: () => this._openMenu(), html: '&#9776;' }),
-        createThemeToggle(true),
         el('div', { class: 'tb-mode', text: { [MODE.ZHANGZHENG]: '军争模式', [MODE.DUEL2V2]: '2v2', [MODE.SOLO]: '单挑' }[snap.mode] }),
       ]),
       el('div', { class: 'tb-phase' }, [
