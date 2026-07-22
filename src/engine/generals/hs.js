@@ -27,7 +27,7 @@ export const HS_GENERALS = {
   octopus: {
     id: 'octopus', name: '八爪巨怪', faction: FACTION.NEUTRAL, hp: 4, title: '纷纷扬沙',
     skills: ['yizhi', 'yawu'],
-    bio: '抑制（锁定技）：你的【杀】未造成伤害后，其目标下回合至多用2张牌。亡语（锁定技）：死亡时摸4张分一半给一名角色。',
+    bio: '抑制（锁定技）：你的【杀】未造成伤害后，其目标下回合至多用2张牌。亡语（锁定技）：死亡时摸12张，自选一部分交给一名角色，其余强制使用完再离开。',
   },
   edwin: {
     id: 'edwin', name: '艾德温', faction: FACTION.NEUTRAL, hp: 4, title: '迪菲亚首脑',
@@ -86,7 +86,7 @@ export const HS_GENERALS = {
   rokara: {
     id: 'rokara', name: '洛卡拉', faction: FACTION.HORDE, hp: 4, title: '勇猛战将',
     skills: ['mengji', 'wujian'],
-    bio: '猛击（锁定技）：一回合内累计造成2点伤害后摸2回1。无坚不摧：你对角色出【杀】时其需打出【杀】否则受1点强制伤害。',
+    bio: '猛击（锁定技）：一回合内累计造成2点伤害后摸2回1。无坚不摧：你对角色出【杀】时其需对自己使用【杀】否则受1点强制伤害。',
   },
   rokhara: {
     id: 'rokhara', name: '洛克霍拉', faction: FACTION.HORDE, hp: 5, title: '冰雪之王',

@@ -991,10 +991,22 @@ async function resolveShaOn(engine, user, target, card) {
     }
   }
 
-  // 无坚不摧（洛卡拉）：目标需打出一张【杀】，否则受到1点强制伤害
-  if (hasSkill(user, 'wujian')) {
-    const provided = await askSha(engine, target, { wujian: true });
-    if (!provided) { engine.log(`${target.name} 未应对【无坚不摧】，受到1点强制伤害。`, 'bad'); await engine.dealDamage({ source: user, target, amount: 1 }); }
+  // 无坚不摧（洛卡拉）：目标需对自己使用一张【杀】，否则受到1点源于你的强制伤害
+  if (hasSkill(user, 'wujian') && target.alive) {
+    let used = false;
+    const resp = await engine.ask(target, { type: REQ.ASK_SHA, wujian: true, title: '无坚不摧：是否对自己使用一张【杀】？（否则受到1点强制伤害）' });
+    if (resp?.card) {
+      const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
+      sources.forEach((c) => removeFrom(target.hand, c));
+      engine.toDiscard([resp.card], target);
+      engine.log(`${target.name} 因【无坚不摧】对自己使用了一张【杀】。`, 'play');
+      await resolveShaOn(engine, target, target, resp.card);
+      used = true;
+    }
+    if (!used && target.alive) {
+      engine.log(`${target.name} 未对自己使用【杀】，受到1点强制伤害。`, 'bad');
+      await engine.dealDamage({ source: user, target, amount: 1 });
+    }
     if (!target.alive) return;
   }
 
@@ -1101,18 +1113,17 @@ async function resolveShaOn(engine, user, target, card) {
   await engine.dealDamage({ source: user, target, amount: dmg, nature: card.nature || 'normal', card });
   // 寒冰箭等：命中后冻结
   if (def.freeze && target.alive) engine.freezeHand(target, def.freeze);
-  // 灵魂之火：命中后你弃置一张牌（法力代价）
+  // 灵魂之火：命中后，由被指定的目标从你的牌中选一张弃置（你没有牌则不弃）
   if (def.selfDiscardOnHit) {
     const own = [...user.hand, ...Object.values(user.equips).filter(Boolean)];
     if (own.length) {
       let c = null;
-      if (engine.agentOf(user)?.kind !== 'ai') {
-        const r = await engine.ask(user, { type: REQ.DISCARD_CARDS, count: 1, from: 'all', title: '灵魂之火：弃置一张牌' });
-        c = (r?.cards || []).map((x) => resolveCardRef(user, x)).filter(Boolean)[0] || null;
+      if (target.alive) {
+        c = await chooseTargetCard(engine, target, user, `灵魂之火：为 ${user.name} 指定弃置一张牌`, true);
       }
       if (!c) c = own[Math.floor(Math.random() * own.length)];
       engine.discardCards(user, [c]);
-      engine.log(`${user.name} 因【灵魂之火】弃置一张牌。`);
+      engine.log(`${user.name} 因【灵魂之火】被 ${target.alive ? target.name : '系统'} 弃置一张牌。`);
     }
   }
   // 世界树嫩枝（任意伤害后回血）在 game.dealDamage 中统一处理

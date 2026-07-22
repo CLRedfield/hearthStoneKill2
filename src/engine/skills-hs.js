@@ -291,7 +291,7 @@ export const HS_SKILLS = {
 
   // 无坚不摧：实现见 effects.js 的 resolveShaOn（需在杀结算流程内）
   wujian: {
-    name: '无坚不摧', desc: '你对一名角色使用【杀】时，其需打出一张【杀】，否则受到1点强制伤害。',
+    name: '无坚不摧', desc: '你对一名角色使用【杀】时，其需对自己使用一张【杀】，否则受到1点源于你的强制伤害。',
   },
 
   // ===== 穆坦努斯（中立）=====
@@ -1102,24 +1102,42 @@ export const HS_SKILLS = {
         if (!drawn.length) return;
         const isAI = engine.agentOf(player)?.kind === 'ai';
         const others = engine.alivePlayers.filter((p) => p !== player);
-        // 1) 选择一部分（默认一半）交给一名其他角色
+        // 1) 自己选择一部分交给一名其他角色（AI 自动给一半，保留【杀】强攻）
         if (others.length && player.hand.length) {
-          let lucky = null;
-          if (isAI) lucky = others.filter((p) => engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp)[0] || null;
-          else {
+          if (isAI) {
+            const lucky = others.filter((p) => engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp)[0] || null;
+            if (lucky) {
+              const sorted = [...player.hand].sort((a, b) => (cardAs(a) === 'sha' ? 1 : 0) - (cardAs(b) === 'sha' ? 1 : 0));
+              const give = sorted.slice(0, Math.ceil(player.hand.length / 2));
+              give.forEach((c) => { removeFrom(player.hand, c); lucky.hand.push(c); });
+              if (give.length) { engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good'); engine.changed(); }
+            }
+          } else {
             const r = await engine.ask(player, {
-              type: REQ.CHOOSE_OPTION, title: '亡语：将一半手牌交给一名角色？（剩余的将被强制使用）',
-              options: [{ value: 'none', label: '不交给任何人' }, ...others.map((p) => ({ value: p.id, label: p.name }))],
+              type: REQ.CHOOSE_OPTION, title: '亡语：将一部分手牌交给谁？（剩余的将被你强制使用）',
+              options: [{ value: 'none', label: '不交给任何人（全部强制使用）' }, ...others.map((p) => ({ value: p.id, label: p.name }))],
             });
-            lucky = (r?.value && r.value !== 'none') ? engine.playerById(r.value) : null;
-          }
-          if (lucky) {
-            // 给一半；【杀】优先留下用于强制攻击，其余优先交给该角色
-            const sorted = [...player.hand].sort((a, b) => (cardAs(a) === 'sha' ? 1 : 0) - (cardAs(b) === 'sha' ? 1 : 0));
-            const give = sorted.slice(0, Math.ceil(player.hand.length / 2));
-            give.forEach((c) => { removeFrom(player.hand, c); lucky.hand.push(c); });
-            engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good');
-            engine.changed();
+            const lucky = (r?.value && r.value !== 'none') ? engine.playerById(r.value) : null;
+            if (lucky) {
+              // 逐张选择要交出的牌，剩下的强制使用
+              let given = 0;
+              while (player.hand.length) {
+                const rr = await engine.ask(player, {
+                  type: REQ.CHOOSE_OPTION,
+                  title: `亡语：选择交给 ${lucky.name} 的牌（已交 ${given} 张，其余强制使用）`,
+                  options: [
+                    ...player.hand.map((c) => ({ value: c.id, label: c.name })),
+                    { value: 'done', label: given ? '完成' : '不交，全部强制使用' },
+                  ],
+                });
+                if (!rr || rr.value === 'done') break;
+                const c = player.hand.find((x) => x.id === rr.value);
+                if (!c) break;
+                removeFrom(player.hand, c); lucky.hand.push(c); given++;
+                engine.changed();
+              }
+              if (given) engine.log(`${player.name} 发动【亡语】，将 ${given} 张牌交给 ${lucky.name}。`, 'good');
+            }
           }
         }
         // 2) 强制使用完剩下的手牌（已死亡也可结算，用不出效果的牌弃置）后再离开
