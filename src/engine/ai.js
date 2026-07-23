@@ -45,6 +45,8 @@ export class AIAgent {
       case REQ.CHOOSE_CARD: return this.chooseCard(req);
       case REQ.DISCARD_CARDS: return this.discard(req);
       case REQ.GUANXING: return this.guanxing(req);
+      case REQ.SELECT_PLAYERS: return this.selectPlayers(req);
+      case REQ.SWAP_CARDS: return this.swapCards(req);
       case REQ.ASK_SKILL: return this.askSkill(req);
       case REQ.PLAY_TURN: return this.roll() ? this._randomMove(req) : this.playTurn(req);
       default: return null;
@@ -185,12 +187,40 @@ export class AIAgent {
   // ---------- 观星 ----------
   guanxing(req) {
     const { cards } = req;
+    if (req.mode === 'select_cards') {
+      const minCount = Math.max(0, Number(req.minCount) || 0);
+      const maxCount = Math.min(cards.length, Number.isFinite(Number(req.maxCount)) ? Number(req.maxCount) : cards.length);
+      const sortedLow = [...cards].sort((a, b) => cardValue(a) - cardValue(b));
+      const chosen = [];
+      for (const c of sortedLow) {
+        if (chosen.length >= maxCount) break;
+        if (req.distinctSuits && chosen.some((x) => x.suit === c.suit)) continue;
+        chosen.push(c);
+        const sum = chosen.reduce((n, x) => n + (x.number || 0), 0);
+        const enough = chosen.length >= minCount
+          && sum >= (Number(req.minSum) || 0)
+          && (!req.multipleOf || sum % Number(req.multipleOf) === 0);
+        if (enough) break;
+      }
+      return { selected: chosen.map((c) => c.id) };
+    }
     const sorted = [...cards].sort((a, b) => cardValue(b) - cardValue(a));
     const keep = Math.ceil(sorted.length / 2);
     return {
       top: sorted.slice(0, keep).map((c) => c.id),
       bottom: sorted.slice(keep).map((c) => c.id),
     };
+  }
+
+  selectPlayers(req) {
+    const max = Math.max(0, Number(req.maxCount) || req.players?.length || 0);
+    return { ids: (req.players || []).slice(0, max).map((p) => p.id) };
+  }
+
+  swapCards(req) {
+    const left = req.leftCards?.[0];
+    const right = req.rightCards?.[0] || left;
+    return left && right ? { left: left.id, right: right.id } : null;
   }
 
   // ---------- 是否发动技能 ----------

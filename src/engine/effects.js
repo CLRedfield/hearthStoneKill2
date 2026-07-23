@@ -61,17 +61,29 @@ async function applyRunblade(engine, user) {
   let limit = await triggerSkill(engine, 'handLimit', { player: user, base: baseLimit });
   if (typeof limit !== 'number') limit = baseLimit;
   const agent = engine.agentOf?.(user);
-  let go;
-  if (agent?.kind === 'ai') go = user.hand.length - 3 < limit; // 弃3后能净摸牌才划算
-  else {
+  let picks = [];
+  if (agent?.kind === 'ai') {
+    if (user.hand.length - 3 >= limit) return; // 弃3后没有净摸牌收益则不发动
+    picks = suits.map((s) => bySuit[s]).sort((a, b) => a.number - b.number).slice(0, 3);
+  } else {
+    const pool = user.hand.filter((c) => !c.frozen);
     const r = await engine.ask(user, {
-      type: REQ.CHOOSE_OPTION, title: '伦鲁迪洛尔：弃掉3张不同花色的牌，将手牌摸至上限？',
-      options: [{ value: 'no', label: '不发动' }, { value: 'yes', label: '弃3张异色 → 摸至上限' }],
+      type: REQ.GUANXING,
+      mode: 'select_cards',
+      cards: pool,
+      minCount: 3,
+      maxCount: 3,
+      distinctSuits: true,
+      title: '伦鲁迪洛尔：选择3张不同花色的牌',
+      selectedLabel: '将弃置的牌',
+      availableLabel: '可选手牌',
+      confirmLabel: '弃牌并摸至上限',
+      cancelLabel: '不发动',
     });
-    go = r?.value === 'yes';
+    const ids = Array.isArray(r?.selected) ? [...new Set(r.selected)] : [];
+    picks = ids.map((id) => pool.find((c) => c.id === id)).filter(Boolean);
+    if (picks.length !== 3 || new Set(picks.map((c) => c.suit)).size !== 3) return;
   }
-  if (!go) return;
-  const picks = suits.map((s) => bySuit[s]).sort((a, b) => a.number - b.number).slice(0, 3);
   engine.discardCards(user, picks);
   engine.log(`${user.name}（伦鲁迪洛尔）弃掉3张不同花色的牌。`, 'play');
   const need = Math.max(0, limit - user.hand.length);
@@ -463,7 +475,7 @@ async function playKsenMask(engine, user, card) {
     if (!tricks.length) { await engine.dealDamage({ source: user, target: t, amount: 1, card }); if (engine.over) return; continue; }
     const resp = await engine.ask(t, {
       type: REQ.CHOOSE_OPTION, title: `克苏恩面具：弃置一张锦囊牌，或受到1点伤害`,
-      options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】` })), { value: 'hurt', label: '受到1点伤害' }],
+      options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })), { value: 'hurt', label: '受到1点伤害' }],
     });
     const chosen = tricks.find((c) => c.id === resp?.value);
     if (chosen) engine.discardCards(t, [chosen]);

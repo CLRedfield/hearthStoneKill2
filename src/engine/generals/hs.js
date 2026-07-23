@@ -180,7 +180,7 @@ export const HS_GENERALS = {
   alleria: {
     id: 'alleria', name: '奥蕾莉亚', faction: FACTION.ALLIANCE, hp: 3, title: '光明游侠',
     skills: ['lijian2', 'jianyu'],
-    bio: '利箭：指定一名角色弃1张牌，你对其造成1点强制伤害。箭语（锁定技，每回合限一次）：造成伤害后，选择复原【利箭】，或回复1点体力并摸一张牌。',
+    bio: '利箭：指定一名角色弃1张牌，你对其造成1点强制伤害。箭语（锁定技，你的回合内限一次）：造成伤害后，选择复原【利箭】，或回复1点体力并摸一张牌。',
   },
   tyrande: {
     id: 'tyrande', name: '泰兰德', faction: FACTION.ALLIANCE, hp: 3, title: '月神之力',

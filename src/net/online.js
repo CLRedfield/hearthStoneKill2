@@ -940,7 +940,13 @@ class ViewEngine {
 // ====================== 请求 / 响应 序列化 ======================
 function serializeReq(req) {
   const out = { type: req.type, title: req.title };
-  ['count', 'from', 'options', 'visibleCards', 'handChoice', 'cards', 'mode', 'skill', 'auto', 'needCard', 'kind', 'need', 'forSkill'].forEach((k) => { if (req[k] !== undefined) out[k] = req[k]; });
+[
+    'count', 'from', 'options', 'visibleCards', 'handChoice', 'cards', 'mode',
+    'minCount', 'maxCount', 'minSum', 'multipleOf', 'distinctSuits',
+    'hint', 'selectedLabel', 'availableLabel', 'confirmLabel', 'cancelLabel',
+    'players', 'leftCards', 'rightCards', 'leftLabel', 'rightLabel',
+    'skill', 'auto', 'needCard', 'kind', 'need', 'forSkill',
+  ].forEach((k) => { if (req[k] !== undefined) out[k] = req[k]; });
   if (req.dying) out.dyingId = req.dying.id;
   if (req.target) out.targetId = req.target.id;
   if (req.fromPlayer) out.fromPlayer = req.fromPlayer;

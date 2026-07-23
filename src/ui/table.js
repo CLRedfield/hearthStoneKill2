@@ -929,44 +929,24 @@ export class GameUI {
       }
       // 审判烈焰：选至多3名角色
       if (skill === 'shenpan') {
-        const picked = [];
         const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId);
-        for (let i = 0; i < 3; i++) {
-          const remain = all.filter((p) => !picked.includes(p.id));
-          if (!remain.length) break;
-          const t = await this._pickPlayer(`审判烈焰：选择第${i + 1}名角色${i > 0 ? '（取消则结束选择）' : ''}`, remain);
-          if (!t) { if (i === 0) return; break; }
-          picked.push(t);
-        }
-        if (picked.length) this._resolve({ type: 'skill', skill, targetIds: picked });
+        const picked = await this._pickPlayers('审判烈焰：选择至多3名角色', all, 1, Math.min(3, all.length));
+        if (picked?.length) this._resolve({ type: 'skill', skill, targetIds: picked });
         return;
       }
       // 冰封：选至多3名角色
       if (skill === 'bingfeng') {
-        const picked = [];
         const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId);
-        for (let i = 0; i < 3; i++) {
-          const remain = all.filter((p) => !picked.includes(p.id));
-          if (!remain.length) break;
-          const t = await this._pickPlayer(`冰封：选择第${i + 1}名角色${i > 0 ? '（取消则结束选择）' : ''}`, remain);
-          if (!t) { if (i === 0) return; break; }
-          picked.push(t);
-        }
-        if (picked.length) this._resolve({ type: 'skill', skill, targetIds: picked });
+        const picked = await this._pickPlayers('冰封：选择至多3名角色', all, 1, Math.min(3, all.length));
+        if (picked?.length) this._resolve({ type: 'skill', skill, targetIds: picked });
         return;
       }
       // 暗影箭雨：明置至多3名角色（不选则由技能自动挑选手牌最多者）
       if (skill === 'anyingjian') {
-        const picked = [];
         const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId && p.hand.length);
-        for (let i = 0; i < 3; i++) {
-          const remain = all.filter((p) => !picked.includes(p.id));
-          if (!remain.length) break;
-          const t = await this._pickPlayer(`暗影箭雨：选择第${i + 1}名要明置手牌的角色（取消则结束）`, remain);
-          if (!t) break;
-          picked.push(t);
-        }
-        this._resolve({ type: 'skill', skill, targetIds: picked });
+        if (!all.length) { this._resolve({ type: 'skill', skill, targetIds: [] }); return; }
+        const picked = await this._pickPlayers('暗影箭雨：选择至多3名要明置手牌的角色', all, 0, Math.min(3, all.length));
+        if (picked) this._resolve({ type: 'skill', skill, targetIds: picked });
         return;
       }
       // 利箭：选目标 + 弃任意张手牌
@@ -1070,6 +1050,52 @@ export class GameUI {
     });
   }
 
+  _pickPlayers(title, players, min, max) {
+    return new Promise((resolve) => {
+      if (!players.length) { toast('无合法目标'); resolve(null); return; }
+      const selected = new Set();
+      const body = el('div', { class: 'multi-player-body' });
+      const hint = el('div', { class: 'gx-hint', text: `请选择 ${min === max ? min : `${min}～${max}`} 名角色。` });
+      const grid = el('div', { class: 'multi-player-grid' });
+      const summary = el('div', { class: 'gx-summary' });
+      let ov, confirmBtn;
+      const valid = () => selected.size >= min && selected.size <= max;
+      const draw = () => {
+        clear(grid);
+        players.forEach((p) => {
+          const active = selected.has(p.id);
+          grid.appendChild(el('button', {
+            class: `btn pick-player-btn multi-player-option ${active ? 'selected' : ''}`,
+            onclick: () => {
+              if (active) selected.delete(p.id);
+              else if (selected.size < max) selected.add(p.id);
+              draw();
+            },
+          }, [
+            el('span', { class: 'mp-check', text: active ? '✓' : '' }),
+            el('span', { class: 'mp-name', text: p.name }),
+            el('span', { class: 'mp-meta', text: `${p.general?.name || p.general || '?'} · ${p.hp}/${p.maxHp || p.hp}体力` }),
+          ]));
+        });
+        summary.textContent = `已选 ${selected.size}/${max} 名角色`;
+        if (confirmBtn) {
+          confirmBtn.textContent = `确认目标 · ${selected.size}`;
+          confirmBtn.classList.toggle('disabled', !valid());
+        }
+      };
+      body.appendChild(hint); body.appendChild(grid); body.appendChild(summary);
+      ov = openOverlay({
+        title, bodyNode: body, className: 'wide arrange-overlay',
+        buttons: [
+          { label: '确认目标', primary: true, onClick: () => { if (valid()) { ov.close(); resolve([...selected]); } } },
+          { label: '取消', onClick: () => { ov.close(); resolve(null); } },
+        ],
+      });
+      confirmBtn = ov.panel.querySelector('.btn-primary');
+      draw();
+    });
+  }
+
   // ============ 决策解析 ============
   _resolve(value) {
     const p = this.pending;
@@ -1110,6 +1136,11 @@ export class HumanAgent {
       }
       case REQ.CHOOSE_CARD: return await this._chooseCard(req);
       case REQ.GUANXING: return await this._guanxing(req);
+      case REQ.SELECT_PLAYERS: {
+        const ids = await ui._pickPlayers(req.title || '选择角色', req.players || [], req.minCount || 0, req.maxCount || req.players?.length || 0);
+        return ids ? { ids } : null;
+      }
+      case REQ.SWAP_CARDS: return await this._swapCards(req);
       case REQ.ASK_SKILL:
         if (req.auto) {
           const ok = await chooseDialog(req.title, [{ value: true, label: '发动' }, { value: false, label: '放弃' }]);
@@ -1145,14 +1176,32 @@ export class HumanAgent {
     return new Promise((resolve) => {
       const cards = req.cards.slice();
       const discardMode = req.mode === 'bottom_discard';
+      const selectMode = req.mode === 'select_cards';
+      const minCount = selectMode ? Math.max(0, Number(req.minCount) || 0) : 0;
+      const requestedMax = Number(req.maxCount);
+      const maxCount = selectMode && Number.isFinite(requestedMax) ? Math.max(minCount, Math.min(cards.length, requestedMax)) : cards.length;
+      const minSum = selectMode ? Math.max(0, Number(req.minSum) || 0) : 0;
+      const multipleOf = selectMode && Number(req.multipleOf) > 0 ? Number(req.multipleOf) : null;
+      const distinctSuits = selectMode && !!req.distinctSuits;
       const topOrder = discardMode ? cards.map((c) => c.id) : [];
       const restKey = discardMode ? 'discard' : 'bottom';
       const body = el('div', { class: 'guanxing-body' });
+      const rules = [];
+      if (selectMode) {
+        if (minCount === maxCount) rules.push(`选择 ${minCount} 张`);
+        else if (minCount > 0) rules.push(`选择 ${minCount}～${maxCount} 张`);
+        else rules.push(`最多选择 ${maxCount} 张`);
+        if (minSum > 0) rules.push(`点数和至少 ${minSum}`);
+        if (multipleOf) rules.push(`点数和为 ${multipleOf} 的倍数`);
+        if (distinctSuits) rules.push('花色互不相同');
+      }
       const hint = el('div', {
         class: 'gx-hint',
-        text: discardMode
-          ? '点击上方牌面将其移入弃牌堆；再次点击可移回。牌堆顶按从左到右的顺序摸取。'
-          : '点击下方牌面可按顺序置于牌堆顶；再次点击可移回牌堆底。',
+        text: req.hint || (selectMode
+          ? `点击“${req.availableLabel || '可选手牌'}”中的牌加入选择；再次点击可移回。${rules.join('，')}。`
+          : discardMode
+            ? '点击上方牌面将其移入弃牌堆；再次点击可移回。牌堆顶按从左到右的顺序摸取。'
+            : '点击下方牌面可按顺序置于牌堆顶；再次点击可移回牌堆底。'),
       });
       const zones = el('div', { class: 'gx-zones' });
       const topZone = el('div', { class: 'gx-zone gx-top' });
@@ -1160,6 +1209,16 @@ export class HumanAgent {
       const summary = el('div', { class: 'gx-summary' });
       let ov, confirmBtn;
       const restCards = () => cards.filter((c) => !topOrder.includes(c.id));
+      const selectedCards = () => topOrder.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+      const selectedSum = () => selectedCards().reduce((sum, c) => sum + (c.number || 0), 0);
+      const selectionValid = () => {
+        const selected = selectedCards();
+        const sum = selected.reduce((n, c) => n + (c.number || 0), 0);
+        return selected.length >= minCount && selected.length <= maxCount
+          && sum >= minSum
+          && (!multipleOf || sum % multipleOf === 0)
+          && (!distinctSuits || new Set(selected.map((c) => c.suit)).size === selected.length);
+      };
       const zoneHead = (label, count) => el('div', { class: 'gx-zone-head' }, [
         el('span', { class: 'gx-label', text: label }),
         el('span', { class: 'gx-count', text: count }),
@@ -1171,39 +1230,107 @@ export class HumanAgent {
       };
       const draw = () => {
         clear(topZone); clear(restZone);
-        topZone.appendChild(zoneHead('牌堆顶 · 左侧先摸', topOrder.length));
+        const sum = selectedSum();
+        const selectedHead = req.selectedLabel || '已选手牌';
+        topZone.appendChild(zoneHead(selectMode ? `${selectedHead} · 点数和 ${sum}` : '牌堆顶 · 左侧先摸', topOrder.length));
         topOrder.forEach((id) => {
           const c = cards.find((x) => x.id === id);
           if (!c) return;
           topZone.appendChild(cardNode(c, () => { const i = topOrder.indexOf(id); topOrder.splice(i, 1); draw(); }));
         });
-        if (!topOrder.length) topZone.appendChild(el('div', { class: 'gx-empty', text: '没有牌置于牌堆顶' }));
+        if (!topOrder.length) topZone.appendChild(el('div', { class: 'gx-empty', text: selectMode ? '尚未选择手牌' : '没有牌置于牌堆顶' }));
 
         const rest = restCards();
-        restZone.appendChild(zoneHead(discardMode ? '弃牌堆' : '牌堆底', rest.length));
+        restZone.appendChild(zoneHead(selectMode ? (req.availableLabel || '可选手牌') : discardMode ? '弃牌堆' : '牌堆底', rest.length));
         rest.forEach((c) => {
-          restZone.appendChild(cardNode(c, () => { topOrder.push(c.id); draw(); }));
+          restZone.appendChild(cardNode(c, () => { if (!selectMode || topOrder.length < maxCount) { topOrder.push(c.id); draw(); } }));
         });
-        if (!rest.length) restZone.appendChild(el('div', { class: 'gx-empty', text: discardMode ? '没有牌会被弃置' : '没有牌置于牌堆底' }));
+        if (!rest.length) restZone.appendChild(el('div', {
+          class: 'gx-empty',
+          text: selectMode ? '没有更多可选手牌' : discardMode ? '没有牌会被弃置' : '没有牌置于牌堆底',
+        }));
 
-        summary.textContent = discardMode
-          ? `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张弃置`
-          : `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张置底`;
-        if (confirmBtn) confirmBtn.textContent = `确认分配 · ${topOrder.length}/${rest.length}`;
+        summary.textContent = selectMode
+          ? `已选 ${topOrder.length} 张 · 点数和 ${sum} · ${selectionValid() ? '可以确认' : rules.join(' · ')}`
+          : discardMode
+            ? `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张弃置`
+            : `分配结果：${topOrder.length} 张置顶 · ${rest.length} 张置底`;
+        if (confirmBtn) {
+          confirmBtn.textContent = selectMode ? `${req.confirmLabel || '确认选择'} · ${topOrder.length} 张` : `确认分配 · ${topOrder.length}/${rest.length}`;
+          confirmBtn.classList.toggle('disabled', selectMode && !selectionValid());
+        }
       };
+      const buttons = [{
+        label: selectMode ? (req.confirmLabel || '确认选择') : '确认分配',
+        primary: true,
+        onClick: () => {
+          if (selectMode) {
+            if (!selectionValid()) return;
+            ov.close();
+            resolve({ selected: [...topOrder] });
+            return;
+          }
+          const rest = restCards().map((c) => c.id);
+          ov.close();
+          resolve({ top: [...topOrder], [restKey]: rest });
+        },
+      }];
+      if (selectMode && req.cancelLabel) buttons.push({ label: req.cancelLabel, onClick: () => { ov.close(); resolve(null); } });
       body.appendChild(hint);
       zones.appendChild(topZone); zones.appendChild(restZone);
       body.appendChild(zones); body.appendChild(summary);
       ov = openOverlay({
         title: req.title || '观星', bodyNode: body, className: 'wide arrange-overlay',
-        buttons: [{
-          label: '确认分配', primary: true,
-          onClick: () => {
-            const rest = restCards().map((c) => c.id);
-            ov.close();
-            resolve({ top: [...topOrder], [restKey]: rest });
-          },
-        }],
+        buttons,
+      });
+      confirmBtn = ov.panel.querySelector('.btn-primary');
+      draw();
+    });
+  }
+
+  async _swapCards(req) {
+    return new Promise((resolve) => {
+      const leftCards = req.leftCards || [];
+      const ownRightCards = req.rightCards || [];
+      let leftId = null;
+      let rightId = null;
+      const body = el('div', { class: 'guanxing-body swap-cards-body' });
+      const hint = el('div', { class: 'gx-hint', text: req.hint || '左右各选择一张牌后确认交换；右侧也可选择刚取得的牌并原样交还。' });
+      const zones = el('div', { class: 'gx-zones' });
+      const leftZone = el('div', { class: 'gx-zone gx-top' });
+      const rightZone = el('div', { class: 'gx-zone gx-bottom' });
+      const summary = el('div', { class: 'gx-summary' });
+      let ov, confirmBtn;
+      const valid = () => !!leftId && !!rightId;
+      const head = (label) => el('div', { class: 'gx-zone-head' }, [el('span', { class: 'gx-label', text: label })]);
+      const nodeFor = (card, selected, onClick, zone) => {
+        const node = miniCardNode(card, onClick);
+        node.classList.add('gx-card');
+        if (selected) node.classList.add('selected');
+        if (zone) node.appendChild(el('span', { class: 'cc-zone', text: zone }));
+        return node;
+      };
+      const draw = () => {
+        clear(leftZone); clear(rightZone);
+        leftZone.appendChild(head(req.leftLabel || '选择获得的牌'));
+        leftCards.forEach((c) => leftZone.appendChild(nodeFor(c, c.id === leftId, () => {
+          leftId = c.id;
+          if (rightId && !ownRightCards.some((x) => x.id === rightId) && rightId !== leftId) rightId = null;
+          draw();
+        })));
+        const selectedLeft = leftCards.find((c) => c.id === leftId);
+        const rightCards = [...ownRightCards, ...(selectedLeft && !ownRightCards.some((c) => c.id === selectedLeft.id) ? [selectedLeft] : [])];
+        rightZone.appendChild(head(req.rightLabel || '选择交出的牌'));
+        rightCards.forEach((c) => rightZone.appendChild(nodeFor(c, c.id === rightId, () => { rightId = c.id; draw(); }, c.id === leftId ? '刚取得' : '自己的牌')));
+        if (!leftCards.length) leftZone.appendChild(el('div', { class: 'gx-empty', text: '没有可获得的牌' }));
+        if (!rightCards.length) rightZone.appendChild(el('div', { class: 'gx-empty', text: '请先选择左侧牌' }));
+        summary.textContent = valid() ? '交换方案已就绪' : '请在左右两侧各选择一张牌';
+        if (confirmBtn) confirmBtn.classList.toggle('disabled', !valid());
+      };
+      body.appendChild(hint); zones.appendChild(leftZone); zones.appendChild(rightZone); body.appendChild(zones); body.appendChild(summary);
+      ov = openOverlay({
+        title: req.title || '交换手牌', bodyNode: body, className: 'wide arrange-overlay',
+        buttons: [{ label: '确认交换', primary: true, onClick: () => { if (valid()) { ov.close(); resolve({ left: leftId, right: rightId }); } } }],
       });
       confirmBtn = ov.panel.querySelector('.btn-primary');
       draw();

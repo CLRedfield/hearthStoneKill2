@@ -20,6 +20,46 @@ function findOnPlayer(player, ref) {
 const anyCards = (p) => [...p.hand, ...Object.values(p.equips).filter(Boolean)];
 const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+async function selectCards(engine, player, cards, config = {}) {
+  const r = await engine.ask(player, {
+    type: REQ.GUANXING,
+    mode: 'select_cards',
+    cards,
+    ...config,
+  });
+  const ids = Array.isArray(r?.selected) ? [...new Set(r.selected)] : [];
+  return ids.map((id) => cards.find((c) => c.id === id)).filter(Boolean);
+}
+
+async function resolveWhisper(engine, source, target, need, damage, title = '低语') {
+  const tricks = target.hand.filter((c) => !c.frozen && CARD_DEFS[c.kind]?.type === CARD_TYPE.TRICK);
+  let chosen = [];
+  if (tricks.length >= need) {
+    if (engine.agentOf(target)?.kind === 'ai') chosen = tricks.slice(0, need);
+    else if (need === 1) {
+      const r = await engine.ask(target, {
+        type: REQ.CHOOSE_OPTION,
+        title: `${title}：弃置一张锦囊牌，或受到${damage}点伤害`,
+        options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })), { value: 'hurt', label: `受到${damage}点伤害` }],
+      });
+      const picked = tricks.find((c) => c.id === r?.value);
+      if (picked) chosen = [picked];
+    } else {
+      chosen = await selectCards(engine, target, tricks, {
+        minCount: need,
+        maxCount: need,
+        title: `${title}：选择弃置的${need}张锦囊牌`,
+        selectedLabel: '将弃置的锦囊',
+        availableLabel: '可选锦囊',
+        confirmLabel: `弃置${need}张`,
+        cancelLabel: `受到${damage}点伤害`,
+      });
+    }
+  }
+  if (chosen.length === need) engine.discardCards(target, chosen);
+  else await engine.dealDamage({ source, target, amount: damage });
+}
+
 // 重新使用一张牌（看吧!/双生魔法）：用牌面信息凭空再使用一次，自动选目标
 async function autoReplay(engine, player, info) {
   if (!info || !player.alive) return;
@@ -381,15 +421,18 @@ export const HS_SKILLS = {
         };
         const pickMulti = async (cands, max, title, aiSort) => {
           if (isAI) return [...cands].sort(aiSort).slice(0, max);
-          const picked = [];
-          while (picked.length < max) {
-            const avail = cands.filter((c) => !picked.includes(c));
-            if (!avail.length) break;
-            const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `${title}（已选${picked.length}/${max}）`, options: [...avail.map((c) => ({ value: c.id, label: c.name })), { value: 'done', label: '结束选择' }] });
-            if (!r || r.value === 'done') break;
-            const c = avail.find((x) => x.id === r.value); if (c) picked.push(c);
-          }
-          return picked;
+          const r = await engine.ask(player, {
+            type: REQ.SELECT_PLAYERS,
+            title,
+            minCount: 0,
+            maxCount: max,
+            players: cands.map((p) => ({
+              id: p.id, name: p.name, general: p.general?.name || p.general || '',
+              hp: p.hp, maxHp: p.maxHp, faction: p.faction,
+            })),
+          });
+          const ids = Array.isArray(r?.ids) ? [...new Set(r.ids)] : [];
+          return ids.map((id) => cands.find((p) => p.id === id)).filter(Boolean).slice(0, max);
         };
         const allyWeak = (a, b) => (engine.isAlly(player, b) ? 1 : 0) - (engine.isAlly(player, a) ? 1 : 0) || a.hp - b.hp;
         const enemyWeak = (a, b) => (engine.isAlly(player, a) ? 1 : 0) - (engine.isAlly(player, b) ? 1 : 0) || a.hp - b.hp;
@@ -512,15 +555,24 @@ export const HS_SKILLS = {
     triggers: {
       async startPhase(engine, { player }) {
         if (player.skillState.awake) return;
-        const sorted = [...player.hand].sort((a, b) => b.number - a.number);
-        let sum = 0; const use = [];
-        for (const c of sorted) { if (sum >= 24) break; use.push(c); sum += c.number; }
+        const pool = player.hand.filter((c) => !c.frozen);
+        const sorted = [...pool].sort((a, b) => b.number - a.number);
+        let sum = 0; const autoUse = [];
+        for (const c of sorted) { if (sum >= 24) break; autoUse.push(c); sum += c.number; }
         if (sum < 24) return;
-        // “可弃”：人类询问是否觉醒，AI 默认觉醒（解除休眠对其有利）
-        const agent = engine.agentOf(player);
-        if (agent && agent.kind !== 'ai') {
-          const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `唤醒：弃 ${use.length} 张牌（点数和 ${sum}）解除【休眠】并对所有其他角色造成1点伤害？`, options: [{ value: 'yes', label: '觉醒' }, { value: 'no', label: '保持休眠' }] });
-          if (r?.value === 'no') return;
+        let use = autoUse;
+        if (engine.agentOf(player)?.kind !== 'ai') {
+          use = await selectCards(engine, player, pool, {
+            minCount: 1,
+            maxCount: pool.length,
+            minSum: 24,
+            title: '唤醒：选择点数和至少为24的牌',
+            selectedLabel: '将弃置的牌',
+            availableLabel: '可选手牌',
+            confirmLabel: '觉醒',
+            cancelLabel: '保持休眠',
+          });
+          if (!use.length || use.reduce((n, c) => n + (c.number || 0), 0) < 24) return;
         }
         player.skillState.awake = true; player.flags.skipPlay = false; player.flags.skipDiscard = false; player.sleepImmune = false;
         engine.discardCards(player, use);
@@ -622,8 +674,13 @@ export const HS_SKILLS = {
       if (engine.agentOf(player)?.kind === 'ai') {
         chosen = revealed.find((r) => isSha(r.card)) || revealed.find((r) => CARD_DEFS[r.card.kind]?.type === CARD_TYPE.TRICK) || revealed[0];
       } else {
-        const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: '暗影箭雨：选择一张立即使用', options: revealed.map((x, i) => ({ value: i, label: `${x.owner.name}的【${x.card.name}】` })) });
-        chosen = revealed[r?.value | 0] || revealed[0];
+        const r = await engine.ask(player, {
+          type: REQ.CHOOSE_CARD,
+          title: '暗影箭雨：选择一张立即使用',
+          fromPlayer: player.id,
+          visibleCards: revealed.map((x) => ({ card: x.card, zone: x.owner.name })),
+        });
+        chosen = revealed.find((x) => x.card.id === r?.card) || revealed[0];
       }
       removeFromHand(chosen.owner.hand, chosen.card); engine.changed();
       await useRealCard(engine, player, chosen.card);
@@ -861,6 +918,26 @@ export const HS_SKILLS = {
         if (cardAs(c) === 'sha' || cardAs(c) === 'shan') return 5;
         return 4;
       };
+      if (!isAI && t.hand.length) {
+        const leftPool = [...t.hand];
+        const rightPool = [...player.hand];
+        const r = await engine.ask(player, {
+          type: REQ.SWAP_CARDS,
+          title: `旋转：与 ${t.name} 交换一张手牌`,
+          leftCards: leftPool,
+          rightCards: rightPool,
+          leftLabel: `${t.name}的手牌 · 选择获得`,
+          rightLabel: '你的手牌 · 选择交出',
+        });
+        const taken = leftPool.find((c) => c.id === r?.left) || leftPool[0];
+        if (!taken) return;
+        removeFromHand(t.hand, taken); player.hand.push(taken);
+        const given = player.hand.find((c) => c.id === r?.right) || player.hand[0];
+        if (given) { removeFromHand(player.hand, given); t.hand.push(given); }
+        engine.log(`${player.name} 发动【旋转】，获得 ${t.name} 的一张手牌并交还一张牌。`, 'play');
+        engine.changed();
+        return;
+      }
       // 1) 观看对方手牌并选择获得一张
       if (t.hand.length) {
         let taken;
@@ -1121,24 +1198,21 @@ export const HS_SKILLS = {
             });
             const lucky = (r?.value && r.value !== 'none') ? engine.playerById(r.value) : null;
             if (lucky) {
-              // 逐张选择要交出的牌，剩下的强制使用
-              let given = 0;
-              while (player.hand.length) {
-                const rr = await engine.ask(player, {
-                  type: REQ.CHOOSE_OPTION,
-                  title: `亡语：选择交给 ${lucky.name} 的牌（已交 ${given} 张，其余强制使用）`,
-                  options: [
-                    ...player.hand.map((c) => ({ value: c.id, label: c.name })),
-                    { value: 'done', label: given ? '完成' : '不交，全部强制使用' },
-                  ],
-                });
-                if (!rr || rr.value === 'done') break;
-                const c = player.hand.find((x) => x.id === rr.value);
-                if (!c) break;
-                removeFromHand(player.hand, c); lucky.hand.push(c); given++;
+              const pool = [...player.hand];
+              const give = await selectCards(engine, player, pool, {
+                minCount: 0,
+                maxCount: pool.length,
+                title: `亡语：选择交给 ${lucky.name} 的牌`,
+                hint: '将任意张牌移入左侧后一次确认；未选择的牌会被你强制使用。',
+                selectedLabel: `交给${lucky.name}`,
+                availableLabel: '将强制使用',
+                confirmLabel: '完成分配',
+              });
+              give.forEach((c) => { removeFromHand(player.hand, c); lucky.hand.push(c); });
+              if (give.length) {
+                engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good');
                 engine.changed();
               }
-              if (given) engine.log(`${player.name} 发动【亡语】，将 ${given} 张牌交给 ${lucky.name}。`, 'good');
             }
           }
         }
@@ -1361,19 +1435,22 @@ export const HS_SKILLS = {
         for (const c of pool) { chosen.push(c); if (sumOf() % m === 0) break; }
         if (sumOf() % m !== 0) chosen.length = 0; // 凑不成倍数则放弃
       } else {
-        while (true) {
-          const avail = player.hand.filter((c) => !c.frozen && !chosen.includes(c));
-          if (!avail.length) break;
-          const ok = chosen.length > 0 && sumOf() % m === 0;
-          const r = await engine.ask(player, {
-            type: REQ.CHOOSE_OPTION,
-            title: `利箭：已选${chosen.length}张(点数和${sumOf()})，标=${m}。${ok ? '可结束或继续' : `需凑成 ${m} 的倍数`}`,
-            options: [...avail.map((c) => ({ value: c.id, label: `${c.name}(${c.number})`, card: c })), { value: 'done', label: ok ? '结束（确定）' : '放弃【利箭】' }],
-          });
-          if (!r || r.value === 'done') break;
-          const c = avail.find((x) => x.id === r.value);
-          if (c) chosen.push(c);
-        }
+        const pool = player.hand.filter((c) => !c.frozen);
+        const r = await engine.ask(player, {
+          type: REQ.GUANXING,
+          mode: 'select_cards',
+          cards: pool,
+          minCount: 1,
+          maxCount: pool.length,
+          multipleOf: m,
+          title: `利箭：选择点数和为 ${m} 的倍数的手牌`,
+          selectedLabel: '将弃置的牌',
+          availableLabel: '可选手牌',
+          confirmLabel: '发动【利箭】',
+          cancelLabel: '放弃【利箭】',
+        });
+        const ids = Array.isArray(r?.selected) ? [...new Set(r.selected)] : [];
+        chosen.push(...ids.map((id) => pool.find((c) => c.id === id)).filter(Boolean));
         if (!chosen.length || sumOf() % m !== 0) { engine.log(`${player.name} 未凑成“标”的倍数，【利箭】无效。`, 'system'); return; }
       }
       const n = chosen.length;
@@ -1390,10 +1467,10 @@ export const HS_SKILLS = {
     },
   },
   jianyu: {
-    name: '箭语', desc: '锁定技，每回合限一次：你造成伤害后，抉择：①复原【利箭】；②回复1点体力并摸一张牌。',
+    name: '箭语', desc: '锁定技，你的回合内限一次：当你造成伤害后，抉择：①复原【利箭】；②回复1点体力并摸一张牌。',
     triggers: {
       async dealDamage(engine, { source }) {
-        if (!source || source.skillState.jianyuRound === engine.round) return;
+        if (!source || engine.turnOwner !== source || source.skillState.jianyuRound === engine.round) return;
         source.skillState.jianyuRound = engine.round;
         let choice;
         if (engine.agentOf(source)?.kind === 'ai') {
@@ -1518,15 +1595,8 @@ export const HS_SKILLS = {
       engine.log(`${player.name} 发动【低语】${awake ? '（组合）' : ''}！`, 'play');
       const order = engine.alivePlayers.filter((p) => p !== player);
       for (const t of order) {
-        let discarded = 0;
-        for (let i = 0; i < need; i++) {
-          const tricks = t.hand.filter((c) => CARD_DEFS[c.kind]?.type === CARD_TYPE.TRICK);
-          if (!tricks.length) break;
-          const resp = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `低语：弃置一张锦囊牌（还需${need - discarded}张），或受到${dmg}点伤害`, options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })), { value: 'hurt', label: `受到${dmg}点伤害` }] });
-          const chosen = tricks.find((c) => c.id === resp?.value);
-          if (chosen) { engine.discardCards(t, [chosen]); discarded++; } else break;
-        }
-        if (discarded < need) { await engine.dealDamage({ source: player, target: t, amount: dmg }); if (engine.over) return; }
+        await resolveWhisper(engine, player, t, need, dmg, awake ? '低语（组合）' : '低语');
+        if (engine.over) return;
       }
     },
   },
@@ -1538,15 +1608,8 @@ export const HS_SKILLS = {
         owner.skillState.zuhePending = false;
         engine.log(`${owner.name}【组合】追加一次强化【低语】！`, 'play');
         for (const t of engine.alivePlayers.filter((p) => p !== owner)) {
-          let discarded = 0;
-          for (let i = 0; i < 3; i++) {
-            const tricks = t.hand.filter((c) => CARD_DEFS[c.kind]?.type === CARD_TYPE.TRICK);
-            if (!tricks.length) break;
-            const resp = await engine.ask(t, { type: REQ.CHOOSE_OPTION, title: `低语（组合）：弃置一张锦囊牌（还需${3 - discarded}张），或受到2点伤害`, options: [...tricks.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })), { value: 'hurt', label: '受到2点伤害' }] });
-            const chosen = tricks.find((c) => c.id === resp?.value);
-            if (chosen) { engine.discardCards(t, [chosen]); discarded++; } else break;
-          }
-          if (discarded < 3) { await engine.dealDamage({ source: owner, target: t, amount: 2 }); if (engine.over) return; }
+          await resolveWhisper(engine, owner, t, 3, 2, '低语（组合）');
+          if (engine.over) return;
         }
       },
     },

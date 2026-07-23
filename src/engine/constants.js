@@ -160,6 +160,8 @@ export const REQ = {
   CHOOSE_OPTION: 'choose_option',
   DISCARD_CARDS: 'discard_cards',
   GUANXING: 'guanxing',       // 观星
+  SELECT_PLAYERS: 'select_players',
+  SWAP_CARDS: 'swap_cards',
   ASK_SKILL: 'ask_skill',     // 是否发动某技能
 };
 
