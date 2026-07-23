@@ -4,7 +4,9 @@ import {
 } from './constants.js';
 import { buildDeck, CARD_DEFS, isSha, isShan, isTao, cardAs, virtualCard } from './cards.js';
 import { GENERAL_LIST, getGeneral, generalPool } from './generals.js';
-import { Emitter, shuffle, sleep, clamp, removeFrom, sample, uid } from '../util.js';
+import {
+  Emitter, shuffle, sleep, clamp, removeFrom, removeFromHand, clearCardFreeze, sample, uid,
+} from '../util.js';
 import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge } from './effects.js';
 import { SKILLS, triggerSkill, hasSkill } from './skills.js';
 
@@ -252,7 +254,7 @@ export class GameEngine {
     for (const c of cards) {
       const sh = CARD_DEFS[c.kind]?.shard;
       if (!sh) continue;
-      removeFrom(holder.hand, c); // 破碎部件触发后移出游戏（不进弃牌堆，避免重洗循环）
+      removeFromHand(holder.hand, c); // 破碎部件触发后移出游戏（不进弃牌堆，避免重洗循环）
       this.log(`💠 ${holder.name} 触发【${c.name}】（破碎）。`, 'play');
       if (cthun) {
         if (sh === 'heart') { cthun.maxHp += 1; cthun.hp = Math.min(cthun.maxHp, cthun.hp + 1); }
@@ -311,7 +313,7 @@ export class GameEngine {
   // 从玩家手牌/装备/判定区移除指定实体牌
   removeCardFromAnywhere(card) {
     for (const p of this.players) {
-      if (removeFrom(p.hand, card)) return { player: p, zone: 'hand' };
+      if (removeFromHand(p.hand, card)) return { player: p, zone: 'hand' };
       for (const slot of Object.keys(p.equips)) {
         if (p.equips[slot] === card) { p.equips[slot] = null; return { player: p, zone: 'equip', slot }; }
       }
@@ -453,7 +455,7 @@ export class GameEngine {
       await this._phasePlay(player);
       if (this.over || !player.alive) return;
     }
-    // 冻结不再拖到下回合：弃牌阶段前解冻本回合内被冻的手牌
+    // 回合末统一先解冻全部手牌，再进入弃牌阶段。
     await this._thawPlayer(player);
     if (!player.flags.skipDiscard && !this.skipToEnd) await this._phaseDiscard(player);
     if (this.over || !player.alive) return;
@@ -476,8 +478,7 @@ export class GameEngine {
     if (frozen) { this.log(`${target.name} 被冻结 ${frozen} 张手牌。`, 'bad'); this.changed(); }
   }
 
-  // 解冻一名角色的冻结手牌（含奥数抉择）。回合开始、本回合弃牌阶段前各调用一次：
-  // 回合开始解冻“被对手冻的牌”；弃牌前解冻“本回合内新被冻的牌”——冻结不再拖到下回合。
+  // 解冻一名角色的全部冻结手牌（含奥数抉择），仅在其回合末弃牌前调用。
   async _thawPlayer(player) {
     // 奥数（晨拥）：被其冻结的牌解冻时，拥有者抉择 ①晨拥摸2 ②弃该牌给晨拥1张
     for (const c of player.hand.filter((x) => x.frozen && x.frozenBy)) {
@@ -488,11 +489,10 @@ export class GameEngine {
       if (agent?.kind === 'ai') pick = player.hand.length <= 2 ? 'draw2' : 'give';
       else { const r = await this.ask(player, { type: REQ.CHOOSE_OPTION, title: `奥数（${freezer.name}的冻结牌解冻）：①使其摸2张 ②弃此牌并给其1张`, options: [{ value: 'draw2', label: `${freezer.name} 摸2张` }, { value: 'give', label: '弃此牌并给其1张' }] }); pick = r?.value || 'draw2'; }
       if (pick === 'draw2') { this.drawCards(freezer, 2); this.log(`${freezer.name} 发动【奥数】摸两张牌。`, 'good'); }
-      else { removeFrom(player.hand, c); freezer.hand.push(c); this.log(`${player.name} 弃置该牌交给 ${freezer.name}（奥数）。`); this.changed(); }
+      else { removeFromHand(player.hand, c); freezer.hand.push(c); this.log(`${player.name} 弃置该牌交给 ${freezer.name}（奥数）。`); this.changed(); }
     }
     let thawed = 0;
-    // 冰霜陷阱冻结的牌（frostTrapTurns>0）不走常规解冻，须等其下回合结束
-    player.hand.forEach((c) => { if (c.frozen && !(c.frostTrapTurns > 0)) { c.frozen = false; thawed++; } });
+    player.hand.forEach((c) => { if (c.frozen) { clearCardFreeze(c); thawed++; } });
     if (thawed) this.changed();
   }
 
@@ -515,8 +515,6 @@ export class GameEngine {
     player.offTurnDamage = 0;      // 复活之甲：回合外受伤计数（你的回合开始重置）
     player.bombDodgeUsed = false;  // 防爆护盾：回合外免费闪避（你的回合开始重置）
     player.iceHeartImmune = false; // 凝冰护盾：你的下回合开始时失去对红桃【杀】的免疫
-    // 解冻“被对手冻的牌”（本回合弃牌前会再解冻一次本回合内新被冻的牌，见 _thawPlayer）
-    await this._thawPlayer(player);
     // 艾露尼斯：准备阶段额外摸牌
     const w = player.equips[EQUIP_SLOT.WEAPON];
     if (w && CARD_DEFS[w.kind]?.startDraw) this.drawCards(player, CARD_DEFS[w.kind].startDraw);
@@ -720,7 +718,7 @@ export class GameEngine {
     const targets = (move.targets || []).map((t) => (typeof t === 'string' ? this.playerById(t) : t)).filter(Boolean);
     // 从手牌移除来源牌（虚拟牌移除其 sourceCards）
     const sources = card.virtual ? card.sourceCards : [card];
-    sources.forEach((c) => removeFrom(player.hand, c));
+    sources.forEach((c) => removeFromHand(player.hand, c));
     this.changed();
     // 毒雾（洛欧塞布）：使用任何牌前须弃一张点数更大的牌，否则无法使用
     const poisoned = this.players.some((p) => p.alive && p.skillState?.duwuTarget === player.id);
@@ -809,14 +807,6 @@ export class GameEngine {
     // 淡云圆盾：回合结束起获得一次免疫
     if (hasArmorKind(player, 'cloudshield')) player.cloudReady = true;
     delete player.flags.immuneAllTurn; // 命运之轮：免疫只持续到本回合结束
-    // 冰霜陷阱：被冻结的牌在其下回合结束后解冻（触发当回合结束记 1，下回合结束归 0 解冻）
-    let frostReleased = 0;
-    player.hand.forEach((c) => {
-      if (!(c.frostTrapTurns > 0)) return;
-      c.frostTrapTurns -= 1;
-      if (c.frostTrapTurns === 0) { c.frozen = false; frostReleased++; }
-    });
-    if (frostReleased) { this.log(`${player.name} 的 ${frostReleased} 张牌解冻（冰霜陷阱）。`); this.changed(); }
     await triggerSkill(this, 'endPhase', { player });
     await triggerSkill(this, 'anyEndPhase', { turnPlayer: player });
     await this.pause(200);
@@ -1082,7 +1072,7 @@ export class GameEngine {
           break;
         }
         const sources = card.virtual ? card.sourceCards : [card];
-        sources.forEach((c) => removeFrom(responder.hand, c));
+        sources.forEach((c) => removeFromHand(responder.hand, c));
         this.toDiscard([card], responder);
         this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
         player.hp += 1;
@@ -1174,6 +1164,7 @@ export class GameEngine {
     await triggerSkill(this, 'death', { player, source });
     // 弃置所有牌
     const all = [...player.hand, ...Object.values(player.equips).filter(Boolean), ...(player.equips2 ? Object.values(player.equips2).filter(Boolean) : []), ...player.judge, ...(player.secrets || []), ...(player.shieldCards || [])];
+    player.hand.forEach(clearCardFreeze);
     player.hand = [];
     player.equips = { weapon: null, armor: null, plus: null, minus: null };
     player.equips2 = { weapon: null, armor: null }; // 骨架（玛洛加尔）副装备栏也要清算，否则死亡时凭空消失
@@ -1192,6 +1183,7 @@ export class GameEngine {
         this.log(`${source.name} 击杀反贼，摸三张牌。`, 'good');
       } else if (player.identity === IDENTITY.LOYALIST && source.identity === IDENTITY.LORD) {
         const lost = [...source.hand, ...Object.values(source.equips).filter(Boolean)];
+        source.hand.forEach(clearCardFreeze);
         source.hand = [];
         source.equips = { weapon: null, armor: null, plus: null, minus: null };
         this.discard.push(...lost);
@@ -1247,7 +1239,7 @@ export class GameEngine {
     }
     this.turnUsedCards = [];
     if (got.length) {
-      got.forEach((c) => { c.frozen = false; c.frostTrapTurns = 0; });
+      got.forEach(clearCardFreeze);
       holder.hand.push(...got);
       this.log(`${holder.name} 触发奥秘【抄袭】，获得 ${turnPlayer.name} 本回合使用的 ${got.length} 张牌！`, 'good');
     } else {

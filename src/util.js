@@ -30,6 +30,24 @@ export function removeFrom(arr, item) {
   return i >= 0;
 }
 
+// 冻结只属于“卡牌当前位于手牌中”这一状态；一旦离手，所有冻结来源/计时一并失效。
+export function clearCardFreeze(card) {
+  if (!card || typeof card !== 'object') return false;
+  const hadFreezeState = Boolean(card.frozen)
+    || Object.prototype.hasOwnProperty.call(card, 'frozenBy')
+    || Object.prototype.hasOwnProperty.call(card, 'frostTrapTurns');
+  delete card.frozen;
+  delete card.frozenBy;
+  delete card.frostTrapTurns;
+  return hadFreezeState;
+}
+
+export function removeFromHand(hand, card) {
+  if (!removeFrom(hand, card)) return false;
+  clearCardFreeze(card);
+  return true;
+}
+
 export const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
 
 // 简单事件总线

@@ -1,6 +1,6 @@
 // ====================== 武将技能 ======================
 import { REQ, SUIT, SUIT_NAME, FACTION, isRed } from './constants.js';
-import { removeFrom } from '../util.js';
+import { removeFrom, removeFromHand } from '../util.js';
 import { HS_SKILLS } from './skills-hs.js';
 
 export function hasSkill(player, key) {
@@ -141,7 +141,7 @@ async function onJudge(engine, { player, card, reason }) {
       needCard: true, from: 'hand',
     });
     if (resp?.card) {
-      removeFrom(p.hand, resp.card);
+      removeFromHand(p.hand, resp.card);
       current = resp.card;
       engine.log(`${p.name} 发动【鬼才】。`, 'good');
     }
@@ -281,7 +281,7 @@ const ACTIVE = {
     const target = engine.playerById(move.targetId);
     const cards = (move.cards || []).map((x) => findOnPlayer(player, x)).filter(Boolean);
     if (!target || !cards.length) return;
-    cards.forEach((c) => { removeFrom(player.hand, c); target.hand.push(c); });
+    cards.forEach((c) => { removeFromHand(player.hand, c); target.hand.push(c); });
     player.flags.rendeGiven = (player.flags.rendeGiven || 0) + cards.length;
     engine.log(`${player.name} 发动【仁德】，将 ${cards.length} 张牌交给 ${target.name}。`, 'good');
     engine.changed();
@@ -311,7 +311,7 @@ const ACTIVE = {
       options: [SUIT.SPADE, SUIT.HEART, SUIT.CLUB, SUIT.DIAMOND].map((s) => ({ value: s, label: SUIT_NAME[s] })),
     });
     const chosen = resp?.value || SUIT.SPADE;
-    removeFrom(player.hand, card);
+    removeFromHand(player.hand, card);
     target.hand.push(card);
     engine.changed();
     engine.log(`${player.name} 发动【反间】，${target.name} 选择了 ${SUIT_NAME[chosen]}，亮出【${card.name}·${SUIT_NAME[card.suit]}】。`, 'play');

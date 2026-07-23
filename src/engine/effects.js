@@ -3,7 +3,7 @@ import { CARD_TYPE, REQ, EQUIP_SLOT, SUIT_NAME, isBlack, isRed } from './constan
 import { CARD_DEFS, cardAs, virtualCard } from './cards.js';
 import { hasSkill, triggerSkill, SKILLS } from './skills.js';
 import { getGeneral, generalPool } from './generals.js';
-import { removeFrom } from '../util.js';
+import { removeFrom, removeFromHand, clearCardFreeze } from '../util.js';
 
 const defOf = (c) => CARD_DEFS[c.kind] || {};
 
@@ -179,7 +179,7 @@ async function fireSpellResonance(engine, user, card) {
   return true;
 }
 
-// 冰霜陷阱（奥秘）：一名角色使用锦囊/奥秘时，冻结此牌并再冻结其2张手牌；其下回合结束后解冻
+// 冰霜陷阱（奥秘）：一名角色使用锦囊/奥秘时，冻结此牌并再冻结其2张手牌
 async function fireFrostTrap(engine, user, card) {
   if (card._noResponse) return false; // 幻象：无法被响应
   const holder = engine.alivePlayers.find((p) => p !== user && p.secrets?.some((s) => s.kind === 'bingshuangxianjing'));
@@ -188,14 +188,14 @@ async function fireFrostTrap(engine, user, card) {
   const s = holder.secrets.find((x) => x.kind === 'bingshuangxianjing');
   removeFrom(holder.secrets, s); engine.discard.push(s);
   engine.fx('secret', { playerId: holder.id, label: '冰霜陷阱' });
-  const frost = (c) => { c.frozen = true; c.frostTrapTurns = 2; };
+  const frost = (c) => { clearCardFreeze(c); c.frozen = true; };
   const reals = card.virtual ? (card.sourceCards || []) : [card];
   reals.forEach((c) => { frost(c); user.hand.push(c); }); // 此牌失效，冻结返回手牌
   const pool = user.hand.filter((c) => !c.frozen);
   for (let i = 0; i < 2 && pool.length; i++) {
     frost(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   }
-  engine.log(`${holder.name} 触发奥秘【冰霜陷阱】，【${card.name}】被冻结返回，另加冻其2张手牌（其下回合结束后解冻）！`, 'good');
+  engine.log(`${holder.name} 触发奥秘【冰霜陷阱】，【${card.name}】被冻结返回，另加冻其2张手牌！`, 'good');
   engine.changed();
   await engine.pause(320);
   return true;
@@ -486,7 +486,7 @@ async function playKangkai(engine, user, target, card) {
       give = user.hand.find((c) => c.id === r?.value) || null;
     }
     if (!give) give = randomHand(user);
-    removeFrom(user.hand, give);
+    removeFromHand(user.hand, give);
     target.hand.push(give);
     engine.log(`${user.name} 慷慨地将一张牌交给 ${target.name}。`, 'good');
   }
@@ -927,7 +927,7 @@ async function useDrawnImmediately(engine, user, card) {
     return dump(); // 【无懈可击】等无法主动使用
   }
   const beforeSha = user.flags.shaUsed || 0;
-  removeFrom(user.hand, card);
+  removeFromHand(user.hand, card);
   engine.log(`${user.name}（符文之矛）立即使用【${card.name}】！`, 'play');
   await resolveCard(engine, { user, card, targets, options: {} });
   if (role === 'sha' && user.alive) user.flags.shaUsed = beforeSha; // 立即使用的【杀】不占用正常出杀次数
@@ -1005,7 +1005,7 @@ async function resolveShaOn(engine, user, target, card) {
     const resp = await engine.ask(target, { type: REQ.ASK_SHA, wujian: true, title: '无坚不摧：是否对自己使用一张【杀】？（否则受到1点强制伤害）' });
     if (resp?.card) {
       const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-      sources.forEach((c) => removeFrom(target.hand, c));
+      sources.forEach((c) => removeFromHand(target.hand, c));
       engine.toDiscard([resp.card], target);
       engine.log(`${target.name} 因【无坚不摧】对自己使用了一张【杀】。`, 'play');
       await resolveShaOn(engine, target, target, resp.card);
@@ -1078,7 +1078,7 @@ async function resolveShaOn(engine, user, target, card) {
       });
       if (again?.card) {
         const sources = again.card.virtual ? again.card.sourceCards : [again.card];
-        sources.forEach((c) => removeFrom(user.hand, c));
+        sources.forEach((c) => removeFromHand(user.hand, c));
         engine.toDiscard([again.card]);
         engine.log(`${user.name}（青龙偃月刀）再次出【杀】！`);
         await resolveShaOn(engine, user, target, again.card);
@@ -1154,7 +1154,7 @@ async function resolveShaOn(engine, user, target, card) {
     const resp = await engine.ask(target, { type: REQ.ASK_SHA, collider: true, title: `超级对撞器：是否使用一张【杀】？（目标由 ${user.name} 指定）` });
     if (resp?.card) {
       const srcs = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-      srcs.forEach((c) => removeFrom(target.hand, c));
+      srcs.forEach((c) => removeFromHand(target.hand, c));
       engine.toDiscard([resp.card], target);
       const cands = engine.alivePlayers.filter((p) => p !== target);
       let victim = null;
@@ -1208,7 +1208,7 @@ export async function getOneDodge(engine, target, ctx) {
       const r = await engine.ask(ally, { type: REQ.ASK_DODGE, forSkill: 'hujia', source: ctx.source, lord: target, title: `护驾：是否替 ${target.name} 打出【闪】？` });
       if (r?.card) {
         const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
-        srcs.forEach((c) => removeFrom(ally.hand, c));
+        srcs.forEach((c) => removeFromHand(ally.hand, c));
         engine.toDiscard([r.card], ally);
         engine.log(`${ally.name} 发动【护驾】替 ${target.name} 打出【闪】。`, 'good');
         return { shan: r.card.virtual ? null : r.card };
@@ -1218,7 +1218,7 @@ export async function getOneDodge(engine, target, ctx) {
   const resp = await engine.ask(target, { type: REQ.ASK_DODGE, ...ctx, title: `${target.name}：是否打出【闪】？` });
   if (resp?.card) {
     const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-    sources.forEach((c) => removeFrom(target.hand, c));
+    sources.forEach((c) => removeFromHand(target.hand, c));
     engine.toDiscard([resp.card], target);
     applyShanEffect(engine, target, resp.card, ctx);
     return { shan: resp.card.virtual ? null : resp.card };
@@ -1243,7 +1243,7 @@ async function askSha(engine, player, ctx) {
       const r = await engine.ask(ally, { type: REQ.ASK_SHA, forSkill: 'jijiang', lord: player, title: `激将：是否替 ${player.name} 打出【杀】？` });
       if (r?.card) {
         const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
-        srcs.forEach((c) => removeFrom(ally.hand, c));
+        srcs.forEach((c) => removeFromHand(ally.hand, c));
         engine.toDiscard([r.card], ally);
         engine.log(`${ally.name} 发动【激将】替 ${player.name} 打出【杀】。`, 'good');
         return true;
@@ -1253,7 +1253,7 @@ async function askSha(engine, player, ctx) {
   const resp = await engine.ask(player, { type: REQ.ASK_SHA, ...ctx, title: `${player.name}：是否打出【杀】？` });
   if (resp?.card) {
     const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-    sources.forEach((c) => removeFrom(player.hand, c));
+    sources.forEach((c) => removeFromHand(player.hand, c));
     engine.toDiscard([resp.card], player);
     return true;
   }
@@ -1444,7 +1444,7 @@ async function askAnyWuxie(engine, { card, targetPlayer, isNullified }) {
       title: `是否对【${card.name}】${targetPlayer ? '（' + targetPlayer.name + '）' : ''}使用【无懈可击】？`,
     });
     if (resp?.card) {
-      removeFrom(p.hand, resp.card);
+      removeFromHand(p.hand, resp.card);
       engine.toDiscard([resp.card], p);
       return p;
     }

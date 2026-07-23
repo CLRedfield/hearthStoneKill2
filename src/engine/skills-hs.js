@@ -1,7 +1,7 @@
 // ====================== 炉石杀 技能实现 ======================
 // 注册表条目：{ name, desc, active?, perTurn?, triggers?:{drawCount,handLimit,dealDamage,usedSha,beforeDeath,...}, action? }
 // triggers 由 skills.js 的泛化分发在各时机调用；action 为出牌阶段主动技。
-import { removeFrom, uid } from '../util.js';
+import { removeFrom, removeFromHand, clearCardFreeze, uid } from '../util.js';
 import { virtualCard, isSha, cardAs, CARD_DEFS } from './cards.js';
 
 // 生成一张“实体”延时/普通牌（非虚拟，能正常进出各区，避免虚拟牌空 sourceCards 导致的复制）
@@ -304,7 +304,7 @@ export const HS_SKILLS = {
       player.flags.tunshiUsed = true;
       // 拿走 from 的一张手牌，置于 to 的武将牌上作为“盾”（穆坦努斯不保留该牌）
       const c = from.hand[Math.floor(Math.random() * from.hand.length)];
-      removeFrom(from.hand, c);
+      removeFromHand(from.hand, c);
       (to.shieldCards = to.shieldCards || []).push(c);
       to.shields = (to.shields || 0) + 1;
       engine.log(`${player.name} 发动【吞噬】，拿走 ${from.name} 一张手牌置于 ${to.name} 武将牌上成为“盾”。`, 'play');
@@ -436,6 +436,7 @@ export const HS_SKILLS = {
     triggers: {
       async kill(engine, { killer, victim }) {
         const cards = [...victim.hand, ...Object.values(victim.equips).filter(Boolean), ...victim.judge];
+        victim.hand.forEach(clearCardFreeze);
         victim.hand = []; victim.equips = { weapon: null, armor: null, plus: null, minus: null }; victim.judge = [];
         killer.hand.push(...cards);
         killer.maxHp = killer.maxHp + victim.maxHp; killer.hp = killer.maxHp; // 体力上限增加“被消灭者上限”，并回满
@@ -486,7 +487,7 @@ export const HS_SKILLS = {
             if (r?.value && r.value !== 'hurt') give = matches.find((c) => c.id === r.value) || null;
           }
         }
-        if (give) { removeFrom(t.hand, give); player.hand.push(give); engine.log(`${t.name} 交给 ${player.name} 一张${SUIT_NAME[card.suit]}牌（流星雨）。`); engine.changed(); return; }
+        if (give) { removeFromHand(t.hand, give); player.hand.push(give); engine.log(`${t.name} 交给 ${player.name} 一张${SUIT_NAME[card.suit]}牌（流星雨）。`); engine.changed(); return; }
         await engine.dealDamage({ source: player, target: t, amount: 1 });
       },
     },
@@ -624,7 +625,7 @@ export const HS_SKILLS = {
         const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: '暗影箭雨：选择一张立即使用', options: revealed.map((x, i) => ({ value: i, label: `${x.owner.name}的【${x.card.name}】` })) });
         chosen = revealed[r?.value | 0] || revealed[0];
       }
-      removeFrom(chosen.owner.hand, chosen.card); engine.changed();
+      removeFromHand(chosen.owner.hand, chosen.card); engine.changed();
       await useRealCard(engine, player, chosen.card);
     },
   },
@@ -806,6 +807,7 @@ export const HS_SKILLS = {
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       player.flags.liexinUsed = true;
+      [...player.hand, ...t.hand].forEach(clearCardFreeze);
       const tmp = player.hand; player.hand = t.hand; t.hand = tmp;
       player.skillState.liexinPartner = t.id;
       engine.log(`${player.name} 与 ${t.name} 交换手牌（裂心）。`, 'play'); engine.changed();
@@ -815,7 +817,7 @@ export const HS_SKILLS = {
         const pid = player.skillState.liexinPartner; if (!pid) return;
         player.skillState.liexinPartner = null;
         const t = engine.playerById(pid);
-        if (t && t.alive) { const tmp = player.hand; player.hand = t.hand; t.hand = tmp; engine.log(`${player.name} 与 ${t.name} 换回手牌。`); engine.changed(); }
+        if (t && t.alive) { [...player.hand, ...t.hand].forEach(clearCardFreeze); const tmp = player.hand; player.hand = t.hand; t.hand = tmp; engine.log(`${player.name} 与 ${t.name} 换回手牌。`); engine.changed(); }
       },
     },
   },
@@ -870,7 +872,7 @@ export const HS_SKILLS = {
           });
           taken = t.hand.find((c) => c.id === r?.card) || t.hand[0];
         }
-        removeFrom(t.hand, taken); player.hand.push(taken);
+        removeFromHand(t.hand, taken); player.hand.push(taken);
         engine.log(`${player.name} 发动【旋转】，获得 ${t.name} 的一张手牌。`, 'play');
       }
       // 2) 选择给其一张牌
@@ -884,7 +886,7 @@ export const HS_SKILLS = {
           });
           given = player.hand.find((c) => c.id === r?.card) || player.hand[0];
         }
-        removeFrom(player.hand, given); t.hand.push(given);
+        removeFromHand(player.hand, given); t.hand.push(given);
         engine.log(`${player.name}【旋转】交给 ${t.name} 一张牌。`);
       }
       engine.changed();
@@ -990,7 +992,7 @@ export const HS_SKILLS = {
         const n = turnPlayer.flags?.lastDiscardCount || 0;
         if (n <= 0 || !turnPlayer.hand.length) return;
         const give = turnPlayer.hand.slice(0, n);
-        give.forEach((c) => { removeFrom(turnPlayer.hand, c); owner.hand.push(c); });
+        give.forEach((c) => { removeFromHand(turnPlayer.hand, c); owner.hand.push(c); });
         engine.log(`${turnPlayer.name} 因【回收】交给 ${owner.name} ${give.length} 张牌。`, 'play'); engine.changed();
       },
     },
@@ -1109,7 +1111,7 @@ export const HS_SKILLS = {
             if (lucky) {
               const sorted = [...player.hand].sort((a, b) => (cardAs(a) === 'sha' ? 1 : 0) - (cardAs(b) === 'sha' ? 1 : 0));
               const give = sorted.slice(0, Math.ceil(player.hand.length / 2));
-              give.forEach((c) => { removeFrom(player.hand, c); lucky.hand.push(c); });
+              give.forEach((c) => { removeFromHand(player.hand, c); lucky.hand.push(c); });
               if (give.length) { engine.log(`${player.name} 发动【亡语】，将 ${give.length} 张牌交给 ${lucky.name}。`, 'good'); engine.changed(); }
             }
           } else {
@@ -1133,7 +1135,7 @@ export const HS_SKILLS = {
                 if (!rr || rr.value === 'done') break;
                 const c = player.hand.find((x) => x.id === rr.value);
                 if (!c) break;
-                removeFrom(player.hand, c); lucky.hand.push(c); given++;
+                removeFromHand(player.hand, c); lucky.hand.push(c); given++;
                 engine.changed();
               }
               if (given) engine.log(`${player.name} 发动【亡语】，将 ${given} 张牌交给 ${lucky.name}。`, 'good');
@@ -1145,7 +1147,7 @@ export const HS_SKILLS = {
         for (const c of remaining) {
           if (engine.over) break;
           if (!player.hand.includes(c)) continue;
-          removeFrom(player.hand, c);
+          removeFromHand(player.hand, c);
           await useRealCard(engine, player, c, !isAI, true);
         }
       },
@@ -1433,7 +1435,7 @@ export const HS_SKILLS = {
         for (const c of got) {
           if (engine.over || !p.alive) break;
           if (!p.hand.includes(c)) continue; // 可能被古尔丹之手等即时弃置
-          removeFrom(p.hand, c);
+          removeFromHand(p.hand, c);
           await useRealCard(engine, p, c, true);
         }
       };
@@ -1673,7 +1675,7 @@ export const HS_SKILLS = {
   },
   aoshu: {
     name: '奥数', desc: '锁定技：你冻结的每张牌解冻时，其拥有者抉择：①使你摸两张牌；②弃掉该牌并交给你一张牌。',
-    // 解冻抉择逻辑见 game._phaseStart（依据 card.frozenBy）
+    // 解冻抉择逻辑见 game._thawPlayer（依据 card.frozenBy）
   },
 
   // ===== 恩佐斯（古神）=====

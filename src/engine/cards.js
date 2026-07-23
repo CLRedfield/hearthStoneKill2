@@ -121,7 +121,7 @@ export const CARD_DEFS = {
   dubiaoxianjing: { name: '毒镖陷阱', type: CARD_TYPE.SECRET, on: 'skill', desc: '奥秘：一名角色发动技能后，对其造成1点普通伤害2次。' },
   chaoxi: { name: '抄袭', type: CARD_TYPE.SECRET, on: 'turnEnd', desc: '奥秘：一名角色回合结束后，获得其在此回合所有使用的牌（包括装备和奥秘）。' },
   bushuxianjing: { name: '捕鼠陷阱', type: CARD_TYPE.SECRET, on: 'cards', desc: '奥秘：当一名角色在自己的回合中累计使用3张牌时，你抽1张牌，并使其获得"过载2"。' },
-  bingshuangxianjing: { name: '冰霜陷阱', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用锦囊或奥秘时，冻结此牌，并再冻结其2张牌，这些牌在其下回合结束后解冻。' },
+  bingshuangxianjing: { name: '冰霜陷阱', type: CARD_TYPE.SECRET, on: 'spells', desc: '奥秘：一名角色使用锦囊或奥秘时，冻结此牌，并再冻结其2张手牌。' },
   baozhafuwen: { name: '爆炸符文', type: CARD_TYPE.SECRET, on: 'equips', desc: '奥秘：当一名角色使用1张装备或奥秘时，弃掉这张牌，再弃掉其1张牌。' },
 
   // ========== 补全·武器 ==========
