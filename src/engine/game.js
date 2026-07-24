@@ -9,6 +9,7 @@ import {
 } from '../util.js';
 import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge } from './effects.js';
 import { SKILLS, triggerSkill, hasSkill } from './skills.js';
+import { discardableCards } from './zones.js';
 
 export class GameEngine {
   constructor(config) {
@@ -183,11 +184,11 @@ export class GameEngine {
     if (this.config.freeGeneralChoice) {
       order = [...order.filter((p) => p.isHuman), ...order.filter((p) => !p.isHuman)];
     }
-    for (const p of order) {
+    const prepareChoice = (p) => {
       const freeChoice = !!this.config.freeGeneralChoice && p.isHuman;
-      let candidates = [];
+      const candidates = [];
       if (freeChoice) {
-        candidates = [...new Set(pool.length ? pool : fullPool)];
+        candidates.push(...new Set(pool.length ? pool : fullPool));
       } else {
         while (candidates.length < 3) {
           if (!pool.length) pool.push(...shuffle(fullPool)); // 武将不够时允许重复
@@ -197,6 +198,10 @@ export class GameEngine {
         }
       }
       if (!candidates.length) candidates.push(fullPool[0]);
+      return { p, freeChoice, candidates };
+    };
+    const requestChoice = async (choice) => {
+      const { p, freeChoice, candidates } = choice;
       const resp = await this.ask(p, {
         type: REQ.CHOOSE_OPTION,
         title: freeChoice ? '自由选择你的武将' : '选择你的武将',
@@ -204,6 +209,9 @@ export class GameEngine {
         kind: 'general',
       });
       const chosen = candidates.includes(resp?.value) ? resp.value : candidates[0];
+      return { ...choice, chosen };
+    };
+    const applyChoice = ({ p, freeChoice, candidates, chosen }) => {
       if (freeChoice) {
         const chosenIndex = pool.indexOf(chosen);
         if (chosenIndex >= 0) pool.splice(chosenIndex, 1);
@@ -212,6 +220,15 @@ export class GameEngine {
         candidates.filter((c) => c !== chosen).forEach((c) => pool.push(c));
       }
       this._assignGeneral(p, chosen);
+    };
+
+    if (this.config.simultaneousGeneralChoice && !this.config.freeGeneralChoice) {
+      const choices = await Promise.all(order.map(prepareChoice).map(requestChoice));
+      choices.forEach(applyChoice);
+      return;
+    }
+    for (const p of order) {
+      applyChoice(await requestChoice(prepareChoice(p)));
     }
   }
 
@@ -324,7 +341,7 @@ export class GameEngine {
     return false;
   }
 
-  // 从玩家手牌/装备/判定区移除指定实体牌
+  // 从玩家手牌/装备/判定区/奥秘区移除指定实体牌
   removeCardFromAnywhere(card) {
     for (const p of this.players) {
       if (removeFromHand(p.hand, card)) return { player: p, zone: 'hand' };
@@ -338,6 +355,16 @@ export class GameEngine {
       }
       const ji = p.judge.indexOf(card);
       if (ji >= 0) { p.judge.splice(ji, 1); return { player: p, zone: 'judge' }; }
+      const si = (p.secrets || []).indexOf(card);
+      if (si >= 0) {
+        p.secrets.splice(si, 1);
+        if (card.guhuoBy != null) {
+          card.guhuoBy = null;
+          card.guhuoDmg = null;
+          card.guhuoNature = null;
+        }
+        return { player: p, zone: 'secret' };
+      }
     }
     return null;
   }
@@ -572,9 +599,6 @@ export class GameEngine {
     player.offTurnDamage = 0;      // 复活之甲：回合外受伤计数（你的回合开始重置）
     player.bombDodgeUsed = false;  // 防爆护盾：回合外免费闪避（你的回合开始重置）
     player.iceHeartImmune = false; // 凝冰护盾：你的下回合开始时失去对红桃【杀】的免疫
-    // 艾露尼斯：准备阶段额外摸牌
-    const w = player.equips[EQUIP_SLOT.WEAPON];
-    if (w && CARD_DEFS[w.kind]?.startDraw) this.drawCards(player, CARD_DEFS[w.kind].startDraw);
     // 非公平游戏（奥秘）：一轮中没有受到伤害 → 抽4张；受过伤则重开观察窗口
     for (const s of [...(player.secrets || [])]) {
       if (s.kind !== 'feigongping') continue;
@@ -723,7 +747,8 @@ export class GameEngine {
 
   async _phaseDraw(player) {
     this._setPhase(PHASE.DRAW);
-    let n = 2;
+    const weaponBonus = weaponsOf(player).reduce((sum, w) => sum + ((CARD_DEFS[w.kind] || {}).drawPhaseBonus || 0), 0);
+    let n = 2 + weaponBonus;
     // 英姿 / 灌魔 等
     const extra = await triggerSkill(this, 'drawCount', { player, base: n });
     if (typeof extra === 'number') n = extra;
@@ -808,7 +833,7 @@ export class GameEngine {
     // 毒雾（洛欧塞布）：使用任何牌前须弃一张点数更大的牌，否则无法使用
     const poisoned = this.players.some((p) => p.alive && p.skillState?.duwuTarget === player.id);
     if (poisoned) {
-      const eligible = player.hand.filter((c) => c.number > (card.number || 0));
+      const eligible = discardableCards(player).filter((c) => c.number > (card.number || 0));
       if (!eligible.length) {
         // 取消使用时退回原区域；武将牌上的牌不能因此混入手牌。
         sources.forEach((c) => (fromPile ? player.pile : player.hand).push(c));

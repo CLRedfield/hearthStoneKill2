@@ -7,6 +7,7 @@ import {
   cardPlayOptions, activeSkillOptions, validTargets, canUseSha, shaTargets, bottledTargets,
 } from './responses.js';
 import { sleep, pickRandom } from '../util.js';
+import { discardableCards } from './zones.js';
 
 // AI 难度 → 行动随机性（chaos 越高越随机、越弱）
 export const AI_CHAOS = { easy: 0.62, normal: 0.30, hard: 0.05 };
@@ -73,7 +74,7 @@ export class AIAgent {
     }
     // 刚烈 等“弃两张 vs 受伤”
     if (req.title?.includes('受到') || req.title?.includes('伤害')) {
-      const cardCount = player.hand.length + Object.values(player.equips).filter(Boolean).length;
+      const cardCount = discardableCards(player).length;
       // 体力高且牌少则受伤；否则弃牌
       if (player.hp > 2 && cardCount <= 2) return { value: pickByLabel(options, ['damage', '伤害']) };
       return { value: pickByLabel(options, ['discard', '弃']) };
@@ -162,7 +163,7 @@ export class AIAgent {
 
   // ---------- 选择对方一张牌（过拆/顺手/反馈） ----------
   chooseCard(req) {
-    const { visibleCards, handChoice, target } = req;
+    const { visibleCards, handChoice, secretChoice, target } = req;
     // 优先装备：武器 > 防具 > 马
     const order = ['weapon', 'armor', 'minus', 'plus'];
     const equips = (visibleCards || []).filter((v) => v.zone === '装备');
@@ -170,6 +171,7 @@ export class AIAgent {
     // 反馈/顺手是“获得”，过拆是“弃置”——都优先拿走装备
     if (equips.length) return { card: equips[0].card.id };
     if (handChoice && handChoice.handCount > 0) return { card: 'hand' };
+    if (secretChoice && secretChoice.secretCount > 0) return { card: 'secret' };
     if (visibleCards?.length) return { card: visibleCards[0].card.id };
     return null;
   }
@@ -177,8 +179,7 @@ export class AIAgent {
   // ---------- 弃牌 ----------
   discard(req) {
     const { player, count, from } = req;
-    let pool = [...player.hand];
-    if (from === 'all') pool = [...player.hand, ...Object.values(player.equips).filter(Boolean)];
+    let pool = discardableCards(player, from);
     if (this.roll()) pool.sort(() => Math.random() - 0.5); // 弱 AI 随机弃
     else pool.sort((a, b) => cardValue(a) - cardValue(b));
     return { cards: pool.slice(0, count).map((c) => c.id) };

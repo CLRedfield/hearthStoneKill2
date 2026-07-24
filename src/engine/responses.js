@@ -3,6 +3,7 @@ import { CARD_DEFS, virtualCard, isSha, isShan, isTao, isJiu } from './cards.js'
 import { CARD_TYPE, EQUIP_SLOT, isRed, isBlack } from './constants.js';
 import { hasSkill } from './skills.js';
 import { canUseSha, shaTargets, validTargets, hasAnyCard, hasArmorKind, hasWeaponKind, bottledTargets } from './effects.js';
+import { discardableCards } from './zones.js';
 
 const usable = (c) => !c.frozen; // 冻结的牌不能使用/打出
 
@@ -126,27 +127,29 @@ export function cardPlayOptions(engine, p, card) {
 export function activeSkillOptions(engine, p) {
   const out = [];
   const can = (k) => hasSkill(p, k);
-  if (can('zhiheng') && !p.skillState.zhihengUsed && p.hand.length) out.push({ skill: 'zhiheng', name: '制衡' });
+  const discardable = discardableCards(p);
+  const unfrozenDiscardable = discardable.filter((c) => !p.hand.includes(c) || usable(c));
+  if (can('zhiheng') && !p.skillState.zhihengUsed && discardable.length) out.push({ skill: 'zhiheng', name: '制衡' });
   if (can('rende') && p.hand.length && engine.alivePlayers.length > 1) out.push({ skill: 'rende', name: '仁德' });
   if (can('kurou')) out.push({ skill: 'kurou', name: '苦肉' });
   if (can('qingnang') && !p.skillState.qingnangUsed && p.hand.length) out.push({ skill: 'qingnang', name: '青囊' });
   if (can('fanjian') && !p.skillState.fanjianUsed && p.hand.length && engine.alivePlayers.length > 1) out.push({ skill: 'fanjian', name: '反间' });
-  if (can('lijian') && !p.skillState.lijianUsed && p.hand.length) {
+  if (can('lijian') && !p.skillState.lijianUsed && discardable.length) {
     const males = engine.alivePlayers.filter((x) => x.gender === 'male');
     if (males.length >= 2) out.push({ skill: 'lijian', name: '离间' });
   }
   // ---- 炉石杀主动技（每回合一次，状态记在 flags） ----
   const others = engine.alivePlayers.length > 1;
   if (can('kuangbao') && !p.flags.kuangbaoUsed && others) out.push({ skill: 'kuangbao', name: '狂暴' });
-  if (can('yinxue') && !p.flags.yinxueUsed && p.hand.length) out.push({ skill: 'yinxue', name: '饮血' });
+  if (can('yinxue') && !p.flags.yinxueUsed && discardable.length) out.push({ skill: 'yinxue', name: '饮血' });
   // 虚空能量：体力≤2时禁用光明能量
-  if (can('guangming') && !p.flags.guangmingUsed && p.hand.length && engine.alivePlayers.length >= 2 && !(hasSkill(p, 'xukong') && p.hp <= 2)) out.push({ skill: 'guangming', name: '光明能量' });
+  if (can('guangming') && !p.flags.guangmingUsed && discardable.length && engine.alivePlayers.length >= 2 && !(hasSkill(p, 'xukong') && p.hp <= 2)) out.push({ skill: 'guangming', name: '光明能量' });
   if (can('linghun') && !p.flags.linghunUsed && others) out.push({ skill: 'linghun', name: '灵魂分流' });
   if (can('xixue') && !p.flags.xixueUsed && engine.alivePlayers.length >= 2) out.push({ skill: 'xixue', name: '吸血' });
-  if (can('xiehuo') && !p.flags.xiehuoUsed && p.hand.length >= 2 && others) out.push({ skill: 'xiehuo', name: '邪火' });
+  if (can('xiehuo') && !p.flags.xiehuoUsed && discardable.length >= 2 && others) out.push({ skill: 'xiehuo', name: '邪火' });
   if (can('shenpan') && !p.flags.shenpanUsed && others) out.push({ skill: 'shenpan', name: '审判烈焰' });
   if (can('bingfeng') && !p.flags.bingfengUsed && others) out.push({ skill: 'bingfeng', name: '冰封' });
-  if (can('xuwu') && !p.flags.xuwuUsed && p.hand.length && others) out.push({ skill: 'xuwu', name: '虚无' });
+  if (can('xuwu') && !p.flags.xuwuUsed && discardable.length && others) out.push({ skill: 'xuwu', name: '虚无' });
   if (can('xuerou') && !p.flags.xuerouUsed && others) out.push({ skill: 'xuerou', name: '血肉成灰' });
   if (can('lianyu') && !p.skillState.lianyuUsed && others) out.push({ skill: 'lianyu', name: '炼狱(限)' });
   if (can('tunshi') && !p.flags.tunshiUsed && others) out.push({ skill: 'tunshi', name: '吞噬' });
@@ -155,8 +158,8 @@ export function activeSkillOptions(engine, p) {
   if (can('xuanzhuan') && (p.flags.xuanzhuanCount || 0) < 3 && others) out.push({ skill: 'xuanzhuan', name: '旋转' });
   if (can('hanshuang') && !p.flags.hanshuangUsed && others) out.push({ skill: 'hanshuang', name: '寒霜' });
   if (can('duwu') && !p.flags.duwuUsed && others) out.push({ skill: 'duwu', name: '毒雾' });
-  if (can('monengshandian') && !p.flags.monengUsed && engine.alivePlayers.length >= 3 && p.hand.length) out.push({ skill: 'monengshandian', name: '魔能闪电' });
-  if (can('daidu') && !p.flags.daiduUsed && p.hand.filter(usable).length >= 3 && others) out.push({ skill: 'daidu', name: '歹毒' });
+  if (can('monengshandian') && !p.flags.monengUsed && engine.alivePlayers.length >= 3 && discardable.length) out.push({ skill: 'monengshandian', name: '魔能闪电' });
+  if (can('daidu') && !p.flags.daiduUsed && unfrozenDiscardable.length >= 3 && others) out.push({ skill: 'daidu', name: '歹毒' });
   if (can('dihou') && !p.flags.dihouUsed && others) out.push({ skill: 'dihou', name: '低吼' });
   if (can('huoyan') && (p.pile || []).filter((c) => isSha(c)).length >= 5 && others) out.push({ skill: 'huoyan', name: '火眼' });
   if (can('lijian2') && !p.flags.lijian2Used && others) out.push({ skill: 'lijian2', name: '利箭' });
@@ -170,7 +173,7 @@ export function activeSkillOptions(engine, p) {
     out.push({ skill: 'shikongmen', name: '时空之门' });
   }
   if (can('mingyun') && !p.flags.mingyunUsed) out.push({ skill: 'mingyun', name: '命运之轮' });
-  if (can('fushi2') && !p.flags.fushi2Used && p.hand.filter(usable).length) out.push({ skill: 'fushi2', name: '腐蚀' });
+  if (can('fushi2') && !p.flags.fushi2Used && unfrozenDiscardable.length) out.push({ skill: 'fushi2', name: '腐蚀' });
   if (can('diyu') && !p.flags.diyuUsed && others) out.push({ skill: 'diyu', name: '低语' });
   if (can('yuanyuhuo') && !p.flags.yuanyuhuoUsed) out.push({ skill: 'yuanyuhuo', name: '渊狱火' });
   if (can('anyingjian') && !p.flags.anyingjianUsed && others) out.push({ skill: 'anyingjian', name: '暗影箭雨' });

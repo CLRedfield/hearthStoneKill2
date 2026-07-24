@@ -149,7 +149,22 @@ export function renderRoomView(container, state, h) {
   // 观战席
   if (state.spectators && state.spectators.length) {
     const specRow = el('div', { class: 'rv-spectators' });
-    state.spectators.forEach((sp) => specRow.appendChild(el('span', { class: `rv-spec ${sp.isYou ? 'you' : ''} ${sp.offline ? 'offline' : ''}`, text: sp.name + (sp.isYou ? '（你）' : '') + (sp.offline ? ' · 离线' : '') })));
+    state.spectators.forEach((sp) => {
+      const children = [el('span', { text: sp.name + (sp.isYou ? '（你）' : '') + (sp.offline ? ' · 离线' : '') })];
+      if (state.canSwap && (state.canEdit || sp.isYou)) {
+        const targets = state.seats.map((s, j) => ({ s, j }));
+        children.push(el('button', {
+          class: 'spec-swap-btn', title: '与普通席位交换', text: '⇄ 入座',
+          onclick: (e) => {
+            e.stopPropagation();
+            openSeatMenu(e.currentTarget, null, targets, state, h, sp);
+          },
+        }));
+      }
+      specRow.appendChild(el('span', {
+        class: `rv-spec ${sp.isYou ? 'you' : ''} ${sp.offline ? 'offline' : ''}`,
+      }, children));
+    });
     root.appendChild(el('div', { class: 'rv-section' }, [el('div', { class: 'rv-label', text: `观战席（${state.spectators.length}）` }), specRow]));
   }
 
@@ -183,7 +198,11 @@ export function renderRoomView(container, state, h) {
 
   // 操作
   const actions = el('div', { class: 'rv-actions' });
-  if (state.canEdit) actions.appendChild(el('button', { class: 'btn btn-primary big', text: '开始游戏', onclick: () => h.onStart() }));
+  if (state.starting) {
+    actions.appendChild(el('div', { class: 'room-wait', text: state.waitingNote || '正在等待所有在线成员进入对局…' }));
+    if (h.onCancelStart) actions.appendChild(el('button', { class: 'btn btn-ghost', text: '取消开局', onclick: () => h.onCancelStart() }));
+  }
+  else if (state.canEdit) actions.appendChild(el('button', { class: 'btn btn-primary big', text: '开始游戏', onclick: () => h.onStart() }));
   else actions.appendChild(el('div', { class: 'room-wait', text: state.waitingNote || '等待房主开始…' }));
   actions.appendChild(el('button', { class: 'btn btn-ghost', text: '退出', onclick: () => h.onExit() }));
   root.appendChild(actions);
@@ -201,23 +220,28 @@ function closeSeatMenu() {
   document.removeEventListener('pointerdown', _onSeatMenuDocDown, true);
   document.removeEventListener('keydown', _onSeatMenuKey, true);
 }
-function openSeatMenu(anchor, fromIdx, targets, state, h) {
-  const reopening = _seatMenu && _seatMenu._fromIdx === fromIdx;
+function openSeatMenu(anchor, fromIdx, targets, state, h, spectator = null) {
+  const sourceKey = spectator ? `spectator:${spectator.id}` : `seat:${fromIdx}`;
+  const reopening = _seatMenu && _seatMenu._sourceKey === sourceKey;
   closeSeatMenu();
   if (reopening) return; // 再次点击同一按钮 = 关闭
-  const fromName = state.seats[fromIdx]?.name || `#${fromIdx + 1}`;
+  const fromName = spectator?.name || state.seats[fromIdx]?.name || `#${fromIdx + 1}`;
   const menu = el('div', { class: 'seat-menu' }, [
-    el('div', { class: 'seat-menu-title', text: `「${fromName}」与谁互换？` }),
+    el('div', { class: 'seat-menu-title', text: spectator ? `「${fromName}」换入哪个座位？` : `「${fromName}」与谁互换？` }),
     el('div', { class: 'seat-menu-list' }, targets.map(({ s, j }) => el('button', {
       class: 'seat-menu-item',
-      onclick: () => { closeSeatMenu(); if (h.onSeatSwap) h.onSeatSwap(fromIdx, j); },
+      onclick: () => {
+        closeSeatMenu();
+        if (spectator) h.onSpectatorSwap?.(spectator.id, j);
+        else h.onSeatSwap?.(fromIdx, j);
+      },
     }, [
       el('span', { class: 'smi-idx', text: `#${j + 1}` }),
       el('span', { class: 'smi-name', text: s.name }),
       s.tag ? el('span', { class: `smi-tag tag-${s.kind}`, text: s.tag }) : null,
     ]))),
   ]);
-  menu._fromIdx = fromIdx;
+  menu._sourceKey = sourceKey;
   document.body.appendChild(menu);
   // 定位：锚点按钮下方，溢出屏幕则上翻 / 夹紧
   const r = anchor.getBoundingClientRect();

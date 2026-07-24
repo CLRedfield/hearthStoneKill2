@@ -110,6 +110,69 @@ test('the host retries one pending request with the same id until it is answered
   assert.deepEqual(await pending, { received: true, response: { type: 'end' } });
 });
 
+test('the host publishes a reliable current snapshot before each decision request', async () => {
+  const { hub, bus } = makeHub();
+  const pending = hub.request('friend', { type: 'play_turn' }, 100, 0);
+  const stateIndex = bus.published.findIndex((item) => item.topic === hub.T.state('friend'));
+  const requestIndex = bus.published.findIndex((item) => item.topic === hub.T.req('friend'));
+  const state = bus.published[stateIndex];
+  const request = bus.published[requestIndex];
+
+  assert.ok(stateIndex >= 0 && stateIndex < requestIndex, 'state must be published before the request');
+  assert.equal(state.opts.qos, 1);
+  assert.equal(request.data.requiredStateSeq, state.data.stateSeq);
+
+  answerLatestRequest(hub, bus);
+  assert.deepEqual(await pending, { received: true, response: { type: 'end' } });
+});
+
+test('the client waits for the request snapshot before opening the interaction', async () => {
+  let releaseState;
+  let respondCount = 0;
+  const published = [];
+  const stateReady = new Promise((resolve) => { releaseState = resolve; });
+  const responder = new ClientRequestResponder({
+    human: { async respond() { respondCount++; return { type: 'end' }; } },
+    hydrate: (req) => req,
+    ready: () => stateReady,
+    serialize: (_type, response) => response,
+    publish: (req, response) => published.push({ reqId: req.reqId, response }),
+  });
+  const pending = responder.handle({ reqId: 'state-bound-request', type: 'play_turn', requiredStateSeq: 3 });
+
+  await Promise.resolve();
+  assert.equal(respondCount, 0);
+  releaseState(true);
+  await pending;
+  assert.equal(respondCount, 1);
+  assert.deepEqual(published, [{ reqId: 'state-bound-request', response: { type: 'end' } }]);
+});
+
+test('cancelling while waiting for state never opens a stale interaction', async () => {
+  let releaseState;
+  let respondCount = 0;
+  const published = [];
+  const stateReady = new Promise((resolve) => { releaseState = resolve; });
+  const responder = new ClientRequestResponder({
+    human: { async respond() { respondCount++; return { type: 'end' }; } },
+    hydrate: (req) => req,
+    ready: () => stateReady,
+    serialize: (_type, response) => response,
+    publish: (req, response) => published.push({ reqId: req.reqId, response }),
+  });
+  const req = { reqId: 'cancel-before-state', type: 'play_turn', requiredStateSeq: 4 };
+  const pending = responder.handle(req);
+
+  await Promise.resolve();
+  responder.cancelRequest(req.reqId);
+  await pending;
+  releaseState(true);
+  await Promise.resolve();
+
+  assert.equal(respondCount, 0);
+  assert.deepEqual(published, [{ reqId: 'cancel-before-state', response: null }]);
+});
+
 test('a duplicate MQTT request republishes the cached response without asking twice', async () => {
   let respondCount = 0;
   const published = [];

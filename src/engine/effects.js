@@ -4,6 +4,7 @@ import { CARD_DEFS, cardAs, virtualCard } from './cards.js';
 import { hasSkill, triggerSkill, SKILLS } from './skills.js';
 import { getGeneral, generalPool } from './generals.js';
 import { removeFrom, removeFromHand, clearCardFreeze } from '../util.js';
+import { discardableCards, findDiscardableCard, gainableCards, equipmentCards } from './zones.js';
 
 const defOf = (c) => CARD_DEFS[c.kind] || {};
 
@@ -37,7 +38,7 @@ export function shaTargets(engine, user, card = null) {
 }
 
 export function hasAnyCard(p) {
-  return p.hand.length > 0 || Object.values(p.equips).some(Boolean) || p.judge.length > 0;
+  return discardableCards(p).length > 0;
 }
 
 // 防护长袍：指向性锦囊无法指定（仅对单体指向的锦囊生效）
@@ -50,9 +51,9 @@ export function bottledTargets(engine, user) {
 
 // 伦鲁迪洛尔：装备时可弃3张不同花色的牌，然后将手牌摸至手牌上限
 async function applyRunblade(engine, user) {
+  const pool = discardableCards(user).filter((c) => !user.hand.includes(c) || !c.frozen);
   const bySuit = {};
-  for (const c of user.hand) {
-    if (c.frozen) continue;
+  for (const c of pool) {
     if (!bySuit[c.suit] || c.number < bySuit[c.suit].number) bySuit[c.suit] = c;
   }
   const suits = Object.keys(bySuit);
@@ -63,10 +64,10 @@ async function applyRunblade(engine, user) {
   const agent = engine.agentOf?.(user);
   let picks = [];
   if (agent?.kind === 'ai') {
-    if (user.hand.length - 3 >= limit) return; // 弃3后没有净摸牌收益则不发动
     picks = suits.map((s) => bySuit[s]).sort((a, b) => a.number - b.number).slice(0, 3);
+    const handCosts = picks.filter((c) => user.hand.includes(c)).length;
+    if (user.hand.length - handCosts >= limit) return; // 弃牌后没有净摸牌收益则不发动
   } else {
-    const pool = user.hand.filter((c) => !c.frozen);
     const r = await engine.ask(user, {
       type: REQ.GUANXING,
       mode: 'select_cards',
@@ -76,7 +77,7 @@ async function applyRunblade(engine, user) {
       distinctSuits: true,
       title: '伦鲁迪洛尔：选择3张不同花色的牌',
       selectedLabel: '将弃置的牌',
-      availableLabel: '可选手牌',
+      availableLabel: '可选牌',
       confirmLabel: '弃牌并摸至上限',
       cancelLabel: '不发动',
     });
@@ -107,7 +108,10 @@ export function validTargets(engine, user, card) {
       }
       return others.filter((t) => !robed(t));
     }
-    case 'one_has_card': return others.filter((t) => hasAnyCard(t) && !robed(t));
+    case 'one_has_card': {
+      const cardsOf = (def.behaves || card.kind) === 'shunshou' ? gainableCards : discardableCards;
+      return others.filter((t) => cardsOf(t).length > 0 && !robed(t));
+    }
     case 'one_has_equip': {
       const hasEquip = (t) => Object.values(t.equips).some(Boolean) || (t.equips2 && Object.values(t.equips2).some(Boolean));
       const withEquip = others.filter((t) => !robed(t) && hasEquip(t));
@@ -117,7 +121,7 @@ export function validTargets(engine, user, card) {
     case 'one_any': // 任意一名角色（含自己）；防护长袍仍挡他人的指向性锦囊
       return engine.alivePlayers.filter((t) => t === user || !robed(t));
     case 'one_in_1_has_card':
-      return others.filter((t) => hasAnyCard(t) && !robed(t) && engine.distance(user, t) <= 1);
+      return others.filter((t) => gainableCards(t).length > 0 && !robed(t) && engine.distance(user, t) <= 1);
     case 'all': return engine.alivePlayers.slice();
     case 'all_other': return others.slice();
     case 'jiedao':
@@ -172,6 +176,50 @@ export async function resolveCard(engine, ctx) {
   await fireRatTrap(engine, ctx.user);
   await fireSarathas(engine, ctx.user, ctx.card);
   return out;
+}
+
+// 实体【闪】通过响应链使用时，也应进入与主动用牌一致的“成功使用”后处理。
+// 仅累计当前回合角色自己的 cardsUsed，避免回合外响应污染其下个回合计数。
+async function settleShanResponse(engine, player, card) {
+  const reals = card.virtual ? (card.sourceCards || []) : [card];
+  reals.forEach((c) => removeFromHand(player.hand, c));
+
+  const previousActor = engine._actingUser;
+  engine._actingUser = player;
+  try {
+    engine.toDiscard([card], player);
+
+    if (engine.turnOwner === player) {
+      (engine.turnUsedCards ||= []).push(...reals);
+      (engine.turnRecallable ||= []).push(...reals);
+      player.flags.cardsUsed = (player.flags.cardsUsed || 0) + 1;
+    }
+
+    engine.usedBasic = (engine.usedBasic || 0) + 1;
+
+    // 凯尔萨斯·奥：被明置的实体【闪】在响应链使用时也正常触发。
+    const marked = card.aoMark ? card : reals.find((c) => c.aoMark);
+    if (marked) {
+      const k = engine.playerById(marked.aoMark);
+      marked.aoMark = null;
+      if (k && k.alive && k !== player) {
+        const dmg = Object.values(player.equips).some(Boolean) ? 2 : 1;
+        engine.log(`${k.name} 的【奥】触发，视为对 ${player.name} 使用一张【火球术】！`, 'play');
+        await engine.dealDamage({ source: k, target: player, amount: dmg, nature: 'fire' });
+      }
+    }
+
+    await triggerSkill(engine, 'usedCard', {
+      player, card, dealtDamage: false, response: true,
+    });
+
+    if (engine.turnOwner === player) {
+      await fireRatTrap(engine, player);
+      await fireSarathas(engine, player, card);
+    }
+  } finally {
+    engine._actingUser = previousActor;
+  }
 }
 
 // 捕鼠陷阱（奥秘）：一名角色在自己的回合累计使用3张牌 → 持有者抽1，其获得过载2
@@ -588,7 +636,7 @@ async function playAnzhong(engine, user, target, card) {
   if (!eqs0.length) {
     // 全场无人有装备 → 退化为弃掉目标 1 张牌
     if (!hasAnyCard(target)) { engine.log(`${target.name} 没有可弃的牌，【暗中破坏】无效。`, 'system'); return; }
-    const picked = await chooseTargetCard(engine, user, target, `暗中破坏：弃掉 ${target.name} 一张牌`, true);
+    const picked = await chooseTargetCard(engine, user, target, `暗中破坏：弃掉 ${target.name} 一张牌`, true, true);
     if (picked) { engine.discardCards(target, [picked]); engine.log(`${user.name} 的【暗中破坏】弃掉 ${target.name} 一张牌。`, 'play'); }
     return;
   }
@@ -989,6 +1037,17 @@ export async function fireMisdirect(engine, user, target, card) {
 }
 
 async function resolveShaOn(engine, user, target, card) {
+  const def = defOf(card);
+  // 灵魂之火：指定目标后，立即由目标从使用者的牌中选一张弃置；是否命中不影响此效果
+  if (def.selfDiscardOnTarget) {
+    const own = discardableCards(user);
+    if (own.length) {
+      const chosen = await chooseTargetCard(engine, target, user, `灵魂之火：为 ${user.name} 指定弃置一张牌`, true, true);
+      const cardToDiscard = chosen || own[Math.floor(Math.random() * own.length)];
+      engine.discardCards(user, [cardToDiscard]);
+      engine.log(`${user.name} 因【灵魂之火】被 ${target.name} 弃置一张牌。`);
+    }
+  }
   // 仁王盾
   if (hasArmorKind(target, 'renwang') && isBlack(card.suit)) {
     engine.log(`${target.name} 的【仁王盾】令黑色【杀】无效。`, 'good');
@@ -1008,7 +1067,7 @@ async function resolveShaOn(engine, user, target, card) {
   await triggerSkill(engine, 'shaTargeted', { target, user, card });
   // 万千箴言剑：你的【杀】指定一名角色时，弃掉其所有牌
   if (weaponsOf(user).some((w) => CARD_DEFS[w.kind]?.discardAllOnTarget) && target.alive && hasAnyCard(target)) {
-    const all = [...target.hand, ...Object.values(target.equips).filter(Boolean), ...(target.equips2 ? Object.values(target.equips2).filter(Boolean) : []), ...target.judge];
+    const all = discardableCards(target);
     if (all.length) { engine.log(`${user.name} 的【万千箴言剑】弃掉 ${target.name} 的所有牌！`, 'play'); engine.discardCards(target, all); }
   }
   // 雌雄双股剑：异性目标
@@ -1045,7 +1104,6 @@ async function resolveShaOn(engine, user, target, card) {
     if (!target.alive) return;
   }
 
-  const def = defOf(card);
   // 刺骨：本回合此前用过其他牌 → 强制伤害（无法被闪避）；激化：本回合已使用≥3张牌 → 杀强制伤害；幻象：下一张牌无法被响应
   const unblockable = !!card._noResponse
     || (def.unblockableIfUsed && (user.flags.cardsUsed || 0) >= 1)
@@ -1072,7 +1130,7 @@ async function resolveShaOn(engine, user, target, card) {
 
   // 贯石斧：你的【杀】被【闪】抵消时，可弃两张牌，令此【杀】强制造成伤害
   if (dodged && hasWeaponKind(user, 'guanshi')) {
-    const pool = [...user.hand, ...Object.values(user.equips).filter(Boolean)];
+    const pool = discardableCards(user);
     if (pool.length >= 2) {
       const resp = await engine.ask(user, {
         type: REQ.CHOOSE_OPTION, title: '贯石斧：是否弃两张牌，令此【杀】强制造成伤害？',
@@ -1123,7 +1181,7 @@ async function resolveShaOn(engine, user, target, card) {
     if (resp?.value === 'yes') {
       for (let i = 0; i < 2; i++) {
         if (!hasAnyCard(target)) break;
-        const picked = await chooseTargetCard(engine, user, target, `寒冰剑：弃置 ${target.name} 的一张牌（第 ${i + 1}/2 张）`, true);
+        const picked = await chooseTargetCard(engine, user, target, `寒冰剑：弃置 ${target.name} 的一张牌（第 ${i + 1}/2 张）`, true, true);
         if (!picked) break;
         engine.discardCards(target, [picked]);
       }
@@ -1139,8 +1197,14 @@ async function resolveShaOn(engine, user, target, card) {
   if (user.flags.jiuUsed) { dmg += 1; user.flags.jiuUsed = false; engine.log('（酒：伤害+1）'); }
   // 月蚀：本回合所有【杀】伤害+1（不消耗）
   if (user.flags.turnShaBonus) dmg += user.flags.turnShaBonus;
-  // 孢子：下一张【杀】伤害+1（全局，消耗）
-  if (engine.sporeBonus) { dmg += engine.sporeBonus; engine.sporeBonus = 0; }
+  // 孢子：下一张【杀】对孢子来源以外的目标伤害+1（全局，命中时消耗）
+  if (engine.sporeBonus) {
+    const sources = Array.isArray(engine.sporeSources) ? engine.sporeSources : [];
+    const selfBonus = sources.filter((id) => id === target.id).length;
+    dmg += Math.max(0, engine.sporeBonus - selfBonus);
+    engine.sporeBonus = 0;
+    engine.sporeSources = [];
+  }
   // 技能加成（火矢/复生等）
   const bonus = await triggerSkill(engine, 'shaDamage', { user, target, base: dmg, card });
   if (typeof bonus === 'number') dmg = bonus;
@@ -1148,19 +1212,6 @@ async function resolveShaOn(engine, user, target, card) {
   await engine.dealDamage({ source: user, target, amount: dmg, nature: card.nature || 'normal', card });
   // 寒冰箭等：命中后冻结
   if (def.freeze && target.alive) engine.freezeHand(target, def.freeze);
-  // 灵魂之火：命中后，由被指定的目标从你的牌中选一张弃置（你没有牌则不弃）
-  if (def.selfDiscardOnHit) {
-    const own = [...user.hand, ...Object.values(user.equips).filter(Boolean)];
-    if (own.length) {
-      let c = null;
-      if (target.alive) {
-        c = await chooseTargetCard(engine, target, user, `灵魂之火：为 ${user.name} 指定弃置一张牌`, true);
-      }
-      if (!c) c = own[Math.floor(Math.random() * own.length)];
-      engine.discardCards(user, [c]);
-      engine.log(`${user.name} 因【灵魂之火】被 ${target.alive ? target.name : '系统'} 弃置一张牌。`);
-    }
-  }
   // 世界树嫩枝（任意伤害后回血）在 game.dealDamage 中统一处理
 
   // 麒麟弓：造成伤害后弃置目标坐骑
@@ -1234,9 +1285,7 @@ export async function getOneDodge(engine, target, ctx) {
       if (ally === target || ally.faction !== 'wei') continue;
       const r = await engine.ask(ally, { type: REQ.ASK_DODGE, forSkill: 'hujia', source: ctx.source, lord: target, title: `护驾：是否替 ${target.name} 打出【闪】？` });
       if (r?.card) {
-        const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
-        srcs.forEach((c) => removeFromHand(ally.hand, c));
-        engine.toDiscard([r.card], ally);
+        await settleShanResponse(engine, ally, r.card);
         engine.log(`${ally.name} 发动【护驾】替 ${target.name} 打出【闪】。`, 'good');
         return { shan: r.card.virtual ? null : r.card };
       }
@@ -1244,9 +1293,7 @@ export async function getOneDodge(engine, target, ctx) {
   }
   const resp = await engine.ask(target, { type: REQ.ASK_DODGE, ...ctx, title: `${target.name}：是否打出【闪】？` });
   if (resp?.card) {
-    const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-    sources.forEach((c) => removeFromHand(target.hand, c));
-    engine.toDiscard([resp.card], target);
+    await settleShanResponse(engine, target, resp.card);
     applyShanEffect(engine, target, resp.card, ctx);
     return { shan: resp.card.virtual ? null : resp.card };
   }
@@ -1292,14 +1339,14 @@ async function playGuohe(engine, user, target, card) {
   engine.toDiscard([card]);
   if (await nullified(engine, card, user, target)) return;
   if (!hasAnyCard(target)) return;
-  const picked = await chooseTargetCard(engine, user, target, `${card.name}：弃置一张牌`, true);
+  const picked = await chooseTargetCard(engine, user, target, `${card.name}：弃置一张牌`, true, true);
   if (!picked) return;
   const wasTrick = CARD_DEFS[picked.kind]?.type === CARD_TYPE.TRICK;
   engine.discardCards(target, [picked]);
   // 邪恶低语：若弃掉的是锦囊牌，再弃掉其一张牌
   if (defOf(card).discardTrickBonus && wasTrick && hasAnyCard(target)) {
     engine.log(`${card.name}：弃掉的是锦囊牌，再弃置 ${target.name} 一张牌！`, 'play');
-    const extra = await chooseTargetCard(engine, user, target, `${card.name}：再弃置一张牌`, true);
+    const extra = await chooseTargetCard(engine, user, target, `${card.name}：再弃置一张牌`, true, true);
     if (extra) engine.discardCards(target, [extra]);
   }
 }
@@ -1308,28 +1355,32 @@ async function playGuohe(engine, user, target, card) {
 async function playShunshou(engine, user, target, card) {
   engine.toDiscard([card]);
   if (await nullified(engine, card, user, target)) return;
-  if (!hasAnyCard(target)) return;
+  if (!gainableCards(target).length) return;
   const picked = await chooseTargetCard(engine, user, target, '顺手牵羊：获得一张牌', true);
   if (picked) { engine.gainCard(user, picked); engine.log(`${user.name} 获得了 ${target.name} 的一张牌。`); }
 }
 
 // 选择目标的一张牌（手牌不可见时随机一张）
-async function chooseTargetCard(engine, user, target, title, hideHand) {
+async function chooseTargetCard(engine, user, target, title, hideHand, includeSecrets = false) {
+  const eligible = includeSecrets ? discardableCards(target) : gainableCards(target);
+  const randomEligible = () => eligible[Math.floor(Math.random() * eligible.length)] || null;
   const visible = [];
-  Object.values(target.equips).filter(Boolean).forEach((c) => visible.push({ card: c, zone: '装备' }));
+  equipmentCards(target).forEach((c) => visible.push({ card: c, zone: '装备' }));
   target.judge.forEach((c) => visible.push({ card: c, zone: '判定' }));
   const handChoice = target.hand.length ? { handCount: target.hand.length } : null;
+  const secretChoice = includeSecrets && target.secrets?.length ? { secretCount: target.secrets.length } : null;
   const resp = await engine.ask(user, {
     type: REQ.CHOOSE_CARD, title, target,
-    visibleCards: visible, handChoice, fromPlayer: target.id,
+    visibleCards: visible, handChoice, secretChoice, fromPlayer: target.id,
   });
   if (resp?.card) {
     if (resp.card === 'hand') return randomHand(target);
-    const found = findCardOnPlayer(target, resp.card);
-    return found || randomCardOf(target);
+    if (resp.card === 'secret' && includeSecrets) return target.secrets[Math.floor(Math.random() * target.secrets.length)] || randomEligible();
+    const found = eligible.find((card) => card.id === resp.card);
+    return found || randomEligible();
   }
   // 兜底
-  return randomCardOf(target);
+  return randomEligible();
 }
 
 // ---------- 决斗 ----------
@@ -1481,12 +1532,7 @@ async function askAnyWuxie(engine, { card, targetPlayer, isNullified }) {
 
 // ---------- 牌引用工具 ----------
 export function findCardOnPlayer(player, id) {
-  let c = player.hand.find((x) => x.id === id);
-  if (c) return c;
-  c = Object.values(player.equips).find((x) => x && x.id === id);
-  if (c) return c;
-  c = player.judge.find((x) => x.id === id);
-  return c || null;
+  return findDiscardableCard(player, id);
 }
 function resolveCardRef(player, ref) {
   return typeof ref === 'string' ? findCardOnPlayer(player, ref) : ref;
@@ -1495,6 +1541,6 @@ function randomHand(player) {
   return player.hand[Math.floor(Math.random() * player.hand.length)] || randomCardOf(player);
 }
 export function randomCardOf(player) {
-  const all = [...player.hand, ...Object.values(player.equips).filter(Boolean), ...player.judge];
+  const all = discardableCards(player);
   return all[Math.floor(Math.random() * all.length)] || null;
 }

@@ -55,7 +55,7 @@ export const CARD_DEFS = {
   huoqiu: { name: '火球术', type: CARD_TYPE.BASIC, as: 'sha', vsEquip: 2, desc: '造成1点伤害；若目标有装备则改为2点。' },
   hanbingjian: { name: '寒冰箭', type: CARD_TYPE.BASIC, as: 'sha', freeze: 1, desc: '造成1点伤害，并冻结目标1张手牌。' },
   shandianjian: { name: '闪电箭', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, overload: 1, desc: '造成2点伤害；过载1（下回合少摸1张）。' },
-  linghunzhihuo: { name: '灵魂之火', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, selfDiscardOnHit: true, desc: '造成2点普通伤害；命中后由目标为你指定弃置一张牌（你没有牌则不弃）。' },
+  linghunzhihuo: { name: '灵魂之火', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, selfDiscardOnTarget: true, desc: '造成2点普通伤害；指定目标后由目标为你指定弃置一张牌（你没有牌则不弃），无论是否命中。' },
   cigu: { name: '刺骨', type: CARD_TYPE.BASIC, as: 'sha', unblockableIfUsed: true, desc: '造成1点伤害；若本回合此前已用过其他牌，则改为强制伤害（无法被闪避）。' },
   // ========== 闪类（as:'shan'） ==========
   shanbi: { name: '闪避', type: CARD_TYPE.BASIC, as: 'shan', desc: '抵消一次普通伤害。' },
@@ -96,7 +96,7 @@ export const CARD_DEFS = {
   pingzhuangshandian: { name: '瓶装闪电', type: CARD_TYPE.DELAYED, bottled: true, target: 'self', desc: '指定自己；或额外弃置1张牌后指定一名角色。其回合开始时判定：黑色则受到3点强制伤害，红色则转移到下一名角色。' },
   // ========== 装备·武器 ==========
   susasi: { name: '苏萨斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, desc: '出牌阶段你使用【杀】无次数限制。' },
-  ailunisi: { name: '艾露尼斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, startDraw: 2, desc: '准备阶段你额外摸两张牌。' },
+  ailunisi: { name: '艾露尼斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, drawPhaseBonus: 2, desc: '摸牌阶段你多摸两张牌。' },
   worldtree: { name: '世界树嫩枝', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, worldtreeHeal: 3, desc: '当你对一名角色造成伤害后，令其回复3点体力。' },
   sulfuras: { name: '萨弗拉斯', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 4, extraShaWeapon: true, chongfengAsHuoqiu: true, desc: '你的【冲锋】视为【火球术】；你每回合可额外使用一张【杀】。' },
   collider: { name: '超级对撞器', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, colliderEffect: true, desc: '你对一名角色使用【杀】结算后，令其使用一张【杀】并由你指定目标；若其不使用则受到1点强制伤害。' },

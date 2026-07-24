@@ -11,6 +11,7 @@ import {
   cardPlayOptions, activeSkillOptions, validTargets, shaTargets, canUseSha,
   shanOptions, shaOptions, peachOptions, wuxieOptions, bottledTargets,
 } from '../engine/responses.js';
+import { discardableCards } from '../engine/zones.js';
 import { FxLayer } from './fx.js';
 import { attachTip, hideTip } from './tooltip.js';
 import { openCodex } from './codex.js';
@@ -21,6 +22,9 @@ export class GameUI {
     this.viewerId = viewerId;
     this.spectator = !!opts.spectator;
     this.rematch = opts.rematch || null; // { label, fn }
+    this.returnRoomAction = opts.returnRoomAction || null;
+    this.returnRoomLabel = opts.returnRoomLabel || '返回房间';
+    this.returnRoomConfirm = opts.returnRoomConfirm || '确定返回房间？当前对局将结束，但房间会保留。';
     this.exitAction = opts.exitAction || null;
     this.exitLabel = opts.exitLabel || '返回大厅';
     this.exitConfirm = opts.exitConfirm || null;
@@ -135,19 +139,34 @@ export class GameUI {
     else location.reload();
   }
 
+  async _returnToRoom(overlay = null) {
+    if (!this.returnRoomAction || !confirm(this.returnRoomConfirm)) return;
+    overlay?.close();
+    if (this._goOverlay === overlay) this._goOverlay = null;
+    await this.returnRoomAction();
+  }
+
   _openMenu() {
     let ov;
+    const buttons = [
+      { label: '查看弃牌堆', onClick: () => { ov.close(); this._openDiscardViewer(); } },
+      { label: '图鉴室', onClick: () => { ov.close(); openCodex(); } },
+    ];
+    if (this.returnRoomAction) {
+      buttons.push({ label: this.returnRoomLabel, onClick: () => this._returnToRoom(ov) });
+    }
+    buttons.push(
+      { label: this.exitLabel, danger: true, onClick: () => this._exitGame(ov) },
+      { label: '继续游戏', primary: true, onClick: () => ov.close() },
+    );
     ov = openOverlay({
       title: '游戏菜单', closable: true,
       bodyNode: el('div', { class: 'menu-list' }, [
-        el('div', { class: 'menu-hint', text: this.exitAction ? '可退出当前联机房间；房主退出会关闭房间。' : '随时可返回大厅重新开始一局。' }),
+        el('div', { class: 'menu-hint', text: this.returnRoomAction
+          ? '返回房间会结束当前对局，但不会关闭房间；等所有玩家到齐后可重新开始。'
+          : (this.exitAction ? '可退出当前联机房间；房主退出会关闭房间。' : '随时可返回大厅重新开始一局。') }),
       ]),
-      buttons: [
-        { label: '查看弃牌堆', onClick: () => { ov.close(); this._openDiscardViewer(); } },
-        { label: '图鉴室', onClick: () => { ov.close(); openCodex(); } },
-        { label: this.exitLabel, danger: true, onClick: () => this._exitGame(ov) },
-        { label: '继续游戏', primary: true, onClick: () => ov.close() },
-      ],
+      buttons,
     });
   }
   _openDiscardViewer() {
@@ -352,13 +371,14 @@ export class GameUI {
     // 装备区
     const equips = el('div', { class: 'p-equips' });
     const mkEquipChip = (e, slot, extra = false) => {
-      const chip = el('div', { class: `equip-chip ${e.red ? 'red' : 'black'}` }, [
+      const chip = el('div', { class: `equip-chip ${e.red ? 'red' : 'black'} ${isMe && this._canSelectTableDiscard() ? 'discard-selectable' : ''} ${this.discardSel.has(e.id) ? 'discard-selected' : ''}` }, [
         el('span', { class: 'eq-tag', text: (extra ? '骨架·' : '') + EQUIP_SLOT_NAME[slot] }),
         el('span', { text: e.name }),
         el('span', { class: 'eq-suit', text: `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}` }),
       ]);
       attachTip(chip, { title: e.name, sub: `${EQUIP_SLOT_NAME[slot]} · ${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}`, desc: CARD_DEFS[e.kind]?.desc || '', accent: '#2e8b57' });
       equips.appendChild(chip);
+      if (isMe && this._canSelectTableDiscard()) chip.onclick = (event) => { event.stopPropagation(); this._toggleDiscardCard(e); };
     };
     for (const slot of [EQUIP_SLOT.WEAPON, EQUIP_SLOT.ARMOR, EQUIP_SLOT.OFFENSE_HORSE, EQUIP_SLOT.DEFENSE_HORSE]) {
       if (p.equips[slot]) mkEquipChip(p.equips[slot], slot);
@@ -368,8 +388,9 @@ export class GameUI {
     // 判定区
     const judge = el('div', { class: 'p-judge' });
     p.judge.forEach((j) => {
-      const chip = el('span', { class: 'judge-chip', text: j.name });
+      const chip = el('span', { class: `judge-chip ${isMe && this._canSelectTableDiscard() ? 'discard-selectable' : ''} ${this.discardSel.has(j.id) ? 'discard-selected' : ''}`, text: j.name });
       attachTip(chip, { title: j.name, sub: '延时锦囊（判定区）', desc: CARD_DEFS[j.kind]?.desc || '', accent: '#d08a3a' });
+      if (isMe && this._canSelectTableDiscard()) chip.onclick = (event) => { event.stopPropagation(); this._toggleDiscardCard(j); };
       judge.appendChild(chip);
     });
 
@@ -384,8 +405,9 @@ export class GameUI {
       // 对自己显示具体奥秘名，对他人只显示数量
       if (p.secrets) {
         p.secrets.forEach((s) => {
-          const sc = el('span', { class: 'token-chip secret-chip', text: s.guhuoBy ? `🗡 蛊惑·${s.name}` : `🔒 ${s.name}` });
+          const sc = el('span', { class: `token-chip secret-chip ${isMe && this._canSelectTableDiscard() ? 'discard-selectable' : ''} ${this.discardSel.has(s.id) ? 'discard-selected' : ''}`, text: s.guhuoBy ? `🗡 蛊惑·${s.name}` : `🔒 ${s.name}` });
           attachTip(sc, { title: s.name, sub: '奥秘（仅你可见）', desc: CARD_DEFS[s.kind]?.desc || '', accent: '#b186ff' });
+          if (isMe && this._canSelectTableDiscard()) sc.onclick = (event) => { event.stopPropagation(); this._toggleDiscardCard(s); };
           tokens.appendChild(sc);
         });
       } else {
@@ -535,6 +557,10 @@ export class GameUI {
     }
 
     if (req && req.type === REQ.DISCARD_CARDS) {
+      ctrl.appendChild(el('span', {
+        class: 'ab-hint',
+        text: req.from === 'all' ? '可选择手牌、装备、判定牌或奥秘' : '请选择手牌',
+      }));
       ctrl.appendChild(el('button', {
         class: `btn btn-primary ${this.discardSel.size === req.count ? '' : 'disabled'}`,
         text: `确定弃牌 (${this.discardSel.size}/${req.count})`,
@@ -670,14 +696,24 @@ export class GameUI {
     return false;
   }
 
+  _canSelectTableDiscard() {
+    const req = this.pending?.req;
+    return req?.type === REQ.DISCARD_CARDS && req.from === 'all';
+  }
+  _toggleDiscardCard(card) {
+    const req = this.pending?.req;
+    if (!req || req.type !== REQ.DISCARD_CARDS || !card) return;
+    if (this.discardSel.has(card.id)) this.discardSel.delete(card.id);
+    else if (this.discardSel.size < req.count) this.discardSel.add(card.id);
+    this.render();
+  }
+
   _onHandCardClick(card) {
     const req = this.pending?.req;
     if (!req) return;
     if (this.zhangba) { this._toggleZhangbaCard(card); return; }
     if (req.type === REQ.DISCARD_CARDS) {
-      if (this.discardSel.has(card.id)) this.discardSel.delete(card.id);
-      else if (this.discardSel.size < req.count) this.discardSel.add(card.id);
-      this.render();
+      this._toggleDiscardCard(card);
       return;
     }
     if (req.type === REQ.ASK_SKILL && req.needCard) { this._resolve({ card }); return; }
@@ -829,6 +865,8 @@ export class GameUI {
   async _startSkillFlow(skill) {
     const me = this.me;
     const engine = this.engine;
+    const discardable = discardableCards(me);
+    const unfrozenDiscardable = discardable.filter((c) => !me.hand.includes(c) || !c.frozen);
     try {
       if (skill === 'kurou') { this._resolve({ type: 'skill', skill }); return; }
       if (skill === 'mingyun' || skill === 'diyu' || skill === 'yuanyuhuo') { this._resolve({ type: 'skill', skill }); return; }
@@ -880,12 +918,12 @@ export class GameUI {
         return;
       }
       if (skill === 'fushi2') {
-        const cards = await this._pickCards('腐蚀：弃一张牌作为“腐”', me.hand.filter((c) => !c.frozen), 1, 1);
+        const cards = await this._pickCards('腐蚀：弃一张牌作为“腐”', unfrozenDiscardable, 1, 1);
         if (cards) this._resolve({ type: 'skill', skill, cardId: cards[0] });
         return;
       }
       if (skill === 'zhiheng') {
-        const cards = await this._pickCards('制衡：选择要换的牌（任意张）', me.hand, 1, me.hand.length);
+        const cards = await this._pickCards('制衡：选择要换的牌（任意张）', discardable, 1, discardable.length);
         if (cards) this._resolve({ type: 'skill', skill, cards });
         return;
       }
@@ -914,7 +952,7 @@ export class GameUI {
         return;
       }
       if (skill === 'lijian') {
-        const cards = await this._pickCards('离间：弃一张牌', me.hand, 1, 1);
+        const cards = await this._pickCards('离间：弃一张牌', discardable, 1, 1);
         if (!cards) return;
         const males = engine.alivePlayers.filter((p) => p.gender === 'male');
         const first = await this._pickPlayer('离间：选择第一名男性角色（决斗发起方）', males);
@@ -932,12 +970,12 @@ export class GameUI {
         return;
       }
       if (skill === 'yinxue') {
-        const cards = await this._pickCards('饮血：选择弃置的牌（弃 n 摸 n，回 ⌊n/2⌋）', me.hand, 1, me.hand.length);
+        const cards = await this._pickCards('饮血：选择弃置的牌（弃 n 摸 n，回 ⌊n/2⌋）', discardable, 1, discardable.length);
         if (cards) this._resolve({ type: 'skill', skill, cards });
         return;
       }
       if (skill === 'guangming') {
-        const cards = await this._pickCards('光明能量：弃一张牌', me.hand, 1, 1);
+        const cards = await this._pickCards('光明能量：弃一张牌', discardable, 1, 1);
         if (!cards) return;
         const healId = await this._pickPlayer('光明能量：选择回复1点体力的角色', engine.alivePlayers);
         if (!healId) return;
@@ -966,7 +1004,7 @@ export class GameUI {
         return;
       }
       if (skill === 'xiehuo') {
-        const cards = await this._pickCards('邪火：弃两张牌', me.hand, 2, 2);
+        const cards = await this._pickCards('邪火：弃两张牌', discardable, 2, 2);
         if (!cards) return;
         const tgt = await this._pickPlayer('邪火：选择目标（弃其装备并置入古尔丹之手）', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;
@@ -1032,7 +1070,7 @@ export class GameUI {
         return;
       }
       if (skill === 'daidu') {
-        const cards = await this._pickCards('歹毒：弃3张牌', me.hand.filter((c) => !c.frozen), 3, 3);
+        const cards = await this._pickCards('歹毒：弃3张牌', unfrozenDiscardable, 3, 3);
         if (!cards) return;
         const tgt = await this._pickPlayer('歹毒：选择交换体力上限/装备/奥秘的角色', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;
@@ -1047,7 +1085,7 @@ export class GameUI {
         return;
       }
       if (skill === 'xuwu') {
-        const cards = await this._pickCards('虚无：弃一张牌（对方将弃同花色的牌）', me.hand, 1, 1);
+        const cards = await this._pickCards('虚无：弃一张牌（对方将弃同花色的牌）', discardable, 1, 1);
         if (!cards) return;
         const tgt = await this._pickPlayer('虚无：选择目标', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;
@@ -1238,6 +1276,11 @@ export class HumanAgent {
       if (req.handChoice && req.handChoice.handCount > 0) {
         for (let i = 0; i < req.handChoice.handCount; i++) {
           body.appendChild(el('div', { class: 'card-back small', onclick: () => { ov.close(); resolve({ card: 'hand' }); } }, [el('span', { text: '手牌' })]));
+        }
+      }
+      if (req.secretChoice && req.secretChoice.secretCount > 0) {
+        for (let i = 0; i < req.secretChoice.secretCount; i++) {
+          body.appendChild(el('div', { class: 'card-back small', onclick: () => { ov.close(); resolve({ card: 'secret' }); } }, [el('span', { text: '奥秘' })]));
         }
       }
       ov = openOverlay({ title: req.title || '选择一张牌', bodyNode: body, className: 'wide' });

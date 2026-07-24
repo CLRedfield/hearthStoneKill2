@@ -3,6 +3,7 @@
 // triggers 由 skills.js 的泛化分发在各时机调用；action 为出牌阶段主动技。
 import { removeFrom, removeFromHand, clearCardFreeze, uid } from '../util.js';
 import { virtualCard, isSha, cardAs, CARD_DEFS } from './cards.js';
+import { discardableCards, findDiscardableCard } from './zones.js';
 
 // 生成一张“实体”延时/普通牌（非虚拟，能正常进出各区，避免虚拟牌空 sourceCards 导致的复制）
 function makeRealCard(kind, suit = 'spade', number = 1) {
@@ -12,12 +13,13 @@ function makeRealCard(kind, suit = 'spade', number = 1) {
 import { REQ, SUIT_NAME, isBlack, isRed, CARD_TYPE } from './constants.js';
 
 function findOnPlayer(player, ref) {
-  if (typeof ref !== 'string') return ref;
-  return player.hand.find((c) => c.id === ref)
-    || Object.values(player.equips).find((c) => c && c.id === ref)
-    || player.judge.find((c) => c.id === ref);
+  return findDiscardableCard(player, ref);
 }
-const anyCards = (p) => [...p.hand, ...Object.values(p.equips).filter(Boolean)];
+function findHandCard(player, ref) {
+  if (typeof ref === 'string') return player.hand.find((card) => card.id === ref) || null;
+  return player.hand.includes(ref) ? ref : null;
+}
+const anyCards = (p) => discardableCards(p);
 const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 async function selectCards(engine, player, cards, config = {}) {
@@ -563,7 +565,7 @@ export const HS_SKILLS = {
     triggers: {
       async startPhase(engine, { player }) {
         if (player.skillState.awake) return;
-        const pool = player.hand.filter((c) => !c.frozen);
+        const pool = discardableCards(player).filter((c) => !player.hand.includes(c) || !c.frozen);
         const sorted = [...pool].sort((a, b) => b.number - a.number);
         let sum = 0; const autoUse = [];
         for (const c of sorted) { if (sum >= 24) break; autoUse.push(c); sum += c.number; }
@@ -576,7 +578,7 @@ export const HS_SKILLS = {
             minSum: 24,
             title: '唤醒：选择点数和至少为24的牌',
             selectedLabel: '将弃置的牌',
-            availableLabel: '可选手牌',
+            availableLabel: '可选牌',
             confirmLabel: '觉醒',
             cancelLabel: '保持休眠',
           });
@@ -645,7 +647,12 @@ export const HS_SKILLS = {
       player.skillState.yuanyuBorrow = key;
       engine.log(`${player.name} 发动【渊狱火】，从“渊·${gen.name}”获得技能【${SKILLS[key].name}】！`, 'win');
       // 弃掉1张牌作为代价
-      const cost = (move.cardId && findOnPlayer(player, move.cardId)) || player.hand.filter((c) => !c.frozen)[0];
+      const costs = discardableCards(player);
+      let cost = move.cardId ? findOnPlayer(player, move.cardId) : null;
+      if (!cost && costs.length) {
+        const r = await engine.ask(player, { type: REQ.DISCARD_CARDS, count: 1, from: 'all', title: '渊狱火：弃掉一张牌' });
+        cost = (r?.cards || []).map((ref) => findOnPlayer(player, ref)).find((card) => costs.includes(card)) || costs[0];
+      }
       if (cost) engine.discardCards(player, [cost]);
       engine.changed();
     },
@@ -700,7 +707,7 @@ export const HS_SKILLS = {
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       const w = player.equips.weapon;
-      const cards = (move.cards || []).map((x) => findOnPlayer(player, x)).filter(Boolean);
+      const cards = (move.cards || []).map((x) => findHandCard(player, x)).filter(Boolean);
       if (!w || cards.length < 2) return;
       player.skillState.xuehouUsed = true;
       player.equips.weapon = null; engine.discard.push(w);
@@ -715,6 +722,7 @@ export const HS_SKILLS = {
     name: '邪火', desc: '锁定技：你每回合使用的第3、6、9…张牌会再使用一次，且你随后摸两张牌。',
     triggers: {
       async usedCard(engine, { player, card }) {
+        if (engine.turnOwner !== player) return;
         if (player.skillState.xiehuoReplaying) return;
         player.skillState.xiehuoCount = (player.skillState.xiehuoCount || 0) + 1;
         if (player.skillState.xiehuoCount % 3 !== 0) return;
@@ -793,7 +801,7 @@ export const HS_SKILLS = {
       player.skillState.qtanyingUsed = true;
       engine.log(`${player.name} 发动限定技【群体暗影】！`, 'play');
       for (const t of engine.alivePlayers.filter((p) => p !== player)) {
-        const pool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
+        const pool = discardableCards(t);
         if (pool.length >= 2) {
           const agent = engine.agentOf(t);
           let cs;
@@ -819,7 +827,7 @@ export const HS_SKILLS = {
       for (const t of engine.alivePlayers.filter((p) => p !== player)) {
         if (engine.over) break;
         const need = 4 + nDiscard;
-        const pool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
+        const pool = discardableCards(t);
         let choice = 'dmg';
         if (pool.length >= need) {
           const agent = engine.agentOf(t);
@@ -992,11 +1000,12 @@ export const HS_SKILLS = {
 
   // ===== 洛欧塞布（天灾）=====
   baozi: {
-    name: '孢子', desc: '锁定技：当你受到一次伤害后，使下一张被使用的【杀】伤害+1。',
+    name: '孢子', desc: '锁定技：当你受到一次伤害后，使下一张被使用的【杀】对除你以外的目标伤害+1。',
     triggers: {
       async damaged(engine, { player }) {
         engine.sporeBonus = (engine.sporeBonus || 0) + 1;
-        engine.log(`${player.name} 发动【孢子】，下一张【杀】伤害+1。`, 'good');
+        (engine.sporeSources ||= []).push(player.id);
+        engine.log(`${player.name} 发动【孢子】，下一张【杀】对除其以外的目标伤害+1。`, 'good');
       },
     },
   },
@@ -1038,6 +1047,7 @@ export const HS_SKILLS = {
         if (player.skillState.yueyingShaBuff) { player.skillState.yueyingShaBuff = false; player.flags.extraSha = (player.flags.extraSha || 0) + 1; player.flags.yueyingShaDmg = true; }
       },
       async usedCard(engine, { player, card }) {
+        if (engine.turnOwner !== player) return;
         if (!player.skillState.yueyingDouble || player.skillState.yueyingFirstDone || player.skillState.yueyingReplaying) return;
         player.skillState.yueyingFirstDone = true; player.skillState.yueyingDouble = false;
         const ty = CARD_DEFS[card.kind]?.type;
@@ -1133,13 +1143,30 @@ export const HS_SKILLS = {
       engine.log(`${player.name} 发动【魔能闪电】！`, 'play');
       let prev = 0;
       for (const p of [player, t1, t2]) {
-        if (!p.alive || !p.hand.length) continue;
-        const higher = p.hand.filter((c) => c.number > prev).sort((a, b) => a.number - b.number)[0];
-        if (higher) { engine.discardCards(p, [higher]); prev = higher.number; }
+        const pool = discardableCards(p);
+        if (!p.alive || !pool.length) continue;
+        const higher = pool.filter((c) => c.number > prev);
+        if (higher.length) {
+          let chosen = [...higher].sort((a, b) => a.number - b.number)[0];
+          if (engine.agentOf(p)?.kind !== 'ai') {
+            const r = await engine.ask(p, {
+              type: REQ.CHOOSE_OPTION, title: `魔能闪电：弃一张点数大于 ${prev} 的牌`,
+              options: higher.map((c) => ({ value: c.id, label: `弃【${c.name}·${c.number}】`, card: c })),
+            });
+            chosen = higher.find((c) => c.id === r?.value) || chosen;
+          }
+          engine.discardCards(p, [chosen]);
+          prev = chosen.number;
+        }
         else {
-          // 无法弃出更大点数：弃出手牌最大的一张并额外多弃一张，用弃出的较大牌延续链条
-          const sorted = [...p.hand].sort((a, b) => b.number - a.number);
-          const drop = sorted.slice(0, 2);
+          // 无法弃出更大点数：弃出点数最大的一张并额外多弃一张，用弃出的较大牌延续链条
+          const count = Math.min(2, pool.length);
+          let drop = [...pool].sort((a, b) => b.number - a.number).slice(0, count);
+          if (engine.agentOf(p)?.kind !== 'ai') {
+            const r = await engine.ask(p, { type: REQ.DISCARD_CARDS, count, from: 'all', title: `魔能闪电：无法弃出更大点数，弃置 ${count} 张牌` });
+            const picked = (r?.cards || []).map((ref) => findOnPlayer(p, ref)).filter((c) => pool.includes(c));
+            if (picked.length === count) drop = picked;
+          }
           engine.discardCards(p, drop);
           engine.log(`${p.name} 无法弃出更大点数，额外多弃一张。`, 'bad');
           prev = drop[0]?.number || prev;
@@ -1401,6 +1428,7 @@ export const HS_SKILLS = {
     name: '看吧！', desc: '锁定技：你的回合结束时，你可以重新使用本回合最后使用的一张基本/锦囊牌，并摸一张牌。',
     triggers: {
       async usedCard(engine, { player, card }) {
+        if (engine.turnOwner !== player) return;
         if (player.skillState.kanbaReplaying) return;
         const ty = CARD_DEFS[card.kind]?.type;
         if (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) player.skillState.kanbaLast = cardInfo(card);
@@ -1490,7 +1518,7 @@ export const HS_SKILLS = {
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       player.flags.lijian2Used = true;
-      const tpool = [...t.hand, ...Object.values(t.equips).filter(Boolean)];
+      const tpool = discardableCards(t);
       if (!tpool.length) { engine.log(`${t.name} 没有牌，【利箭】无效。`, 'system'); return; }
       // 标：目标弃1张（自选），取其点数 m
       let mark = null;
@@ -1506,12 +1534,11 @@ export const HS_SKILLS = {
       const chosen = [];
       const sumOf = () => chosen.reduce((s, c) => s + (c.number || 0), 0);
       const isAI = engine.agentOf(player)?.kind === 'ai';
+      const pool = discardableCards(player).filter((c) => !player.hand.includes(c) || !c.frozen);
       if (isAI) {
-        const pool = player.hand.filter((c) => !c.frozen).sort((a, b) => (a.number || 0) - (b.number || 0));
-        for (const c of pool) { chosen.push(c); if (sumOf() % m === 0) break; }
+        for (const c of [...pool].sort((a, b) => (a.number || 0) - (b.number || 0))) { chosen.push(c); if (sumOf() % m === 0) break; }
         if (sumOf() % m !== 0) chosen.length = 0; // 凑不成倍数则放弃
       } else {
-        const pool = player.hand.filter((c) => !c.frozen);
         const r = await engine.ask(player, {
           type: REQ.GUANXING,
           mode: 'select_cards',
@@ -1519,9 +1546,9 @@ export const HS_SKILLS = {
           minCount: 1,
           maxCount: pool.length,
           multipleOf: m,
-          title: `利箭：选择点数和为 ${m} 的倍数的手牌`,
+          title: `利箭：选择点数和为 ${m} 的倍数的牌`,
           selectedLabel: '将弃置的牌',
-          availableLabel: '可选手牌',
+          availableLabel: '可选牌',
           confirmLabel: '发动【利箭】',
           cancelLabel: '放弃【利箭】',
         });
@@ -1652,6 +1679,7 @@ export const HS_SKILLS = {
     },
     triggers: {
       async usedCard(engine, { player, card }) {
+        if (engine.turnOwner !== player) return;
         if (player.flags.fuValue == null) return;
         if ((card.number || 0) >= player.flags.fuValue) { engine.drawCards(player, 1); }
         else { player.flags.extraSha = (player.flags.extraSha || 0) + 1; }

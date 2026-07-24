@@ -2,6 +2,7 @@
 import { REQ, SUIT, SUIT_NAME, FACTION, isRed } from './constants.js';
 import { removeFrom, removeFromHand } from '../util.js';
 import { HS_SKILLS } from './skills-hs.js';
+import { discardableCards, findDiscardableCard } from './zones.js';
 
 export function hasSkill(player, key) {
   if (!player) return false;
@@ -219,7 +220,7 @@ async function onDamaged(engine, { player, source, amount, card }) {
     engine.log(`${player.name} 发动【刚烈】，判定...`, 'good');
     const jr = await engine.doJudge(player, '刚烈');
     if (jr.suit !== SUIT.HEART) {
-      const canDiscard = source.hand.length + Object.values(source.equips).filter(Boolean).length >= 2;
+      const canDiscard = discardableCards(source).length >= 2;
       let choice = 'damage';
       if (canDiscard) {
         const resp = await engine.ask(source, {
@@ -232,7 +233,7 @@ async function onDamaged(engine, { player, source, amount, card }) {
         const resp = await engine.ask(source, { type: REQ.DISCARD_CARDS, count: 2, from: 'all', title: '刚烈：弃两张牌' });
         let cards = (resp?.cards || []).map((x) => findOnPlayer(source, x)).filter(Boolean);
         while (cards.length < 2) {
-          const pool = [...source.hand, ...Object.values(source.equips).filter(Boolean)].filter((c) => !cards.includes(c));
+          const pool = discardableCards(source).filter((c) => !cards.includes(c));
           if (!pool.length) break;
           cards.push(pool[0]);
         }
@@ -252,10 +253,11 @@ async function onDamaged(engine, { player, source, amount, card }) {
 }
 
 function findOnPlayer(player, ref) {
-  if (typeof ref !== 'string') return ref;
-  return player.hand.find((c) => c.id === ref)
-    || Object.values(player.equips).find((c) => c && c.id === ref)
-    || player.judge.find((c) => c.id === ref);
+  return findDiscardableCard(player, ref);
+}
+function findHandCard(player, ref) {
+  if (typeof ref === 'string') return player.hand.find((card) => card.id === ref) || null;
+  return player.hand.includes(ref) ? ref : null;
 }
 
 // ====================== 主动技能 ======================
@@ -280,7 +282,7 @@ const ACTIVE = {
   // 仁德
   async rende(engine, { player, move }) {
     const target = engine.playerById(move.targetId);
-    const cards = (move.cards || []).map((x) => findOnPlayer(player, x)).filter(Boolean);
+    const cards = (move.cards || []).map((x) => findHandCard(player, x)).filter(Boolean);
     if (!target || !cards.length) return;
     cards.forEach((c) => { removeFromHand(player.hand, c); target.hand.push(c); });
     player.flags.rendeGiven = (player.flags.rendeGiven || 0) + cards.length;
@@ -294,7 +296,7 @@ const ACTIVE = {
   // 青囊
   async qingnang(engine, { player, move }) {
     const target = engine.playerById(move.targetId) || player;
-    const card = findOnPlayer(player, move.cardId);
+    const card = findHandCard(player, move.cardId);
     if (!card) return;
     engine.discardCards(player, [card]);
     player.skillState.qingnangUsed = true;
@@ -304,7 +306,7 @@ const ACTIVE = {
   // 反间
   async fanjian(engine, { player, move }) {
     const target = engine.playerById(move.targetId);
-    const card = findOnPlayer(player, move.cardId);
+    const card = findHandCard(player, move.cardId);
     if (!target || !card) return;
     player.skillState.fanjianUsed = true;
     const resp = await engine.ask(target, {

@@ -184,9 +184,11 @@
 .tag-human { background: rgba(201,162,39,.25); color: var(--gold-bright); }
 .tag-ai, .tag-empty { background: rgba(110,110,140,.3); color: #c9c9da; }
 .rv-spectators { display: flex; flex-wrap: wrap; gap: 8px; }
-.rv-spec { font-size: 13px; padding: 4px 10px; border-radius: 8px; background: rgba(110,130,160,.18); border: 1px solid rgba(140,160,190,.35); color: #c7d4e2; }
+.rv-spec { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; padding: 4px 6px 4px 10px; border-radius: 8px; background: rgba(110,130,160,.18); border: 1px solid rgba(140,160,190,.35); color: #c7d4e2; }
 .rv-spec.you { border-color: var(--gold-bright); color: var(--gold-bright); }
 .rv-spec.offline { opacity: .68; border-style: dashed; }
+.spec-swap-btn { font: inherit; font-size: 11px; line-height: 1.2; padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(201,162,39,.42); background: var(--ink-1); color: var(--gold-bright); cursor: pointer; white-space: nowrap; }
+.spec-swap-btn:hover { background: var(--gold); border-color: var(--gold-bright); color: #281c05; }
 .rv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip-btn { font-size: 13px; color: var(--text); background: var(--ink-1); border: 1px solid rgba(201,162,39,.3); border-radius: 8px; padding: 6px 14px; cursor: pointer; transition: all .14s; }
 .chip-btn:hover { border-color: var(--gold); }
