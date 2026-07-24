@@ -87,6 +87,21 @@ async function autoReplay(engine, player, info) {
   await resolveCard(engine, { user: player, card: v, targets, options: {} });
 }
 const cardInfo = (c) => ({ kind: c.kind, suit: c.suit, number: c.number, red: c.red });
+// 神圣之触：判断一张牌是否“可以造成伤害”
+const DAMAGE_BEHAVES = ['juedou', 'hsjuedou', 'nanman', 'wanjian', 'daoshan', 'oddhp', 'ksenmask', 'hengchong', 'fengkuang'];
+function isDamageCard(card) {
+  if (cardAs(card) === 'sha') return true;
+  const behaves = CARD_DEFS[card.kind]?.behaves || card.kind;
+  return DAMAGE_BEHAVES.includes(behaves);
+}
+function zerilaSkillActive(player, skill) {
+  return player.skillState.zerilaActive === skill || !!player.flags?.xintuBothActive;
+}
+async function fireShengchu(engine, player, reason = '') {
+  engine.log(`${player.name} 发动【神圣之触】${reason}，恢复1点生命并抽1张牌。`, 'good');
+  await engine.recover(player, 1);
+  engine.drawCards(player, 1);
+}
 
 // 立即使用一张“实体牌”（暗影箭雨夺取后使用）：自动选目标，由 user 结算
 // 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
@@ -1298,9 +1313,11 @@ export const HS_SKILLS = {
   // ===== 泽瑞拉（联盟）=====
   // 神圣之触 / 虚空之刺：在你的回合开始前选择其一，本回合只有所选生效（zerilaActive 记录）
   shengchu: {
-    name: '神圣之触', desc: '锁定技：你回合内无法造成伤害，你回复1点体力，抽2张牌（回合开始时与【虚空之刺】二选一生效）',
+    name: '神圣之触', desc: '锁定技：在你的回合，当你使用可以造成伤害的牌并未造成伤害后，恢复你1点生命，并抽1张牌。若回合内未造成伤害，回合结束时再触发1次。',
     triggers: {
       async startPhase(engine, { player }) {
+        player.skillState.shengchuDealtDamage = false;
+        delete player.flags.xintuBothActive;
         // 仅在同时拥有两个锁定技时需要二选一
         const hasBoth = (player.skills || []).includes('xukongci');
         let pick = 'shengchu';
@@ -1312,7 +1329,7 @@ export const HS_SKILLS = {
               type: REQ.CHOOSE_OPTION,
               title: '本回合生效哪个锁定技？',
               options: [
-                { value: 'shengchu', label: '神圣之触（无法造成伤害，回复1并摸2）' },
+                { value: 'shengchu', label: '神圣之触（伤害牌未造成伤害后回1摸1）' },
                 { value: 'xukongci', label: '虚空之刺（回血即群伤）' },
               ],
             });
@@ -1321,11 +1338,16 @@ export const HS_SKILLS = {
         }
         player.skillState.zerilaActive = pick;
         engine.log(`${player.name} 本回合启用【${pick === 'shengchu' ? '神圣之触' : '虚空之刺'}】。`, 'good');
-        if (pick === 'shengchu') {
-          engine.log(`${player.name} 发动【神圣之触】，回复1点体力并摸2张牌。`, 'good');
-          await engine.recover(player, 1);
-          engine.drawCards(player, 2);
-        }
+      },
+      async usedCard(engine, { player, card, dealtDamage }) {
+        if (engine.turnOwner !== player || !zerilaSkillActive(player, 'shengchu')) return;
+        if (!isDamageCard(card) || dealtDamage) return;
+        await fireShengchu(engine, player);
+      },
+      async endPhase(engine, { player }) {
+        if (engine.turnOwner !== player || !zerilaSkillActive(player, 'shengchu')) return;
+        if (player.skillState.shengchuDealtDamage) return;
+        await fireShengchu(engine, player, '（本回合未造成伤害）');
       },
     },
   },
@@ -1333,7 +1355,7 @@ export const HS_SKILLS = {
     name: '虚空之刺', desc: '锁定技：你的回合内，你每回复1点体力，便对所有其他角色各造成1点普通伤害。（回合开始时与【神圣之触】二选一生效）',
     triggers: {
       async recovered(engine, { player, amount }) {
-        if (engine.turnOwner !== player || player.skillState.zerilaActive !== 'xukongci') return;
+        if (engine.turnOwner !== player || !zerilaSkillActive(player, 'xukongci')) return;
         engine.log(`${player.name} 发动【虚空之刺】！`, 'play');
         for (let i = 0; i < amount; i++) {
           for (const t of engine.alivePlayers.filter((p) => p !== player)) {
@@ -1346,7 +1368,7 @@ export const HS_SKILLS = {
   },
   xintu: {
     name: '信徒', active: true, limited: true,
-    desc: '限定技：你使用的黑色基本或锦囊牌都会置于武将牌上；发动后，你可以在本回合内从武将牌上的“信徒”牌框中将这些牌重新打出。',
+    desc: '限定技：你使用的黑色基本或锦囊牌都会置于武将牌上，你可以一回合内将这些牌打出，本回合内两个锁定技都生效。',
     async action(engine, { player }) {
       const banked = (player.pile || []).filter((c) => {
         const ty = CARD_DEFS[c.kind]?.type;
@@ -1355,7 +1377,8 @@ export const HS_SKILLS = {
       if (player.skillState.xintuUsed || !banked.length) return;
       player.skillState.xintuUsed = true;
       player.flags.xintuReplay = true;
-      engine.log(`${player.name} 发动限定技【信徒】，本回合可从武将牌上重新打出 ${banked.length} 张牌！`, 'play');
+      player.flags.xintuBothActive = true;
+      engine.log(`${player.name} 发动限定技【信徒】，本回合可从武将牌上打出 ${banked.length} 张牌，且【神圣之触】与【虚空之刺】同时生效！`, 'play');
       engine.changed();
     },
     triggers: {
@@ -1402,28 +1425,61 @@ export const HS_SKILLS = {
 
   // ===== 卡德加（联盟）=====
   shuangsheng: {
-    name: '双生魔法', desc: '锁定技：你每回合使用的基本/锦囊牌都置于武将牌上，将在你的下个回合开始时各再使用一次。',
+    name: '双生魔法', desc: '锁定技：你每回合使用的基本/锦囊牌都置于武将牌上，将在你的下个回合开始时可以被使用。',
     triggers: {
-      async usedCard(engine, { player, card }) {
+      usedCard(engine, { player, card }) {
         const ty = CARD_DEFS[card.kind]?.type;
-        if ((ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) && !player.skillState.twinReplaying) {
-          (player.skillState.twinList = player.skillState.twinList || []).push(cardInfo(card));
+        if (ty !== CARD_TYPE.BASIC && ty !== CARD_TYPE.TRICK) return;
+        const reals = card.virtual ? (card.sourceCards || []) : [card];
+        const moved = reals.filter((c) => {
+          const realType = CARD_DEFS[c.kind]?.type;
+          return (realType === CARD_TYPE.BASIC || realType === CARD_TYPE.TRICK)
+            && engine.discard.includes(c);
+        });
+        moved.forEach((c) => {
+          removeFrom(engine.discard, c);
+          c.twinStoredBy = player.id;
+          c.twinReady = false;
+          player.pile.push(c);
+        });
+        if (moved.length) {
+          engine.log(`${player.name} 发动【双生魔法】，将 ${moved.length} 张牌置于武将牌上。`, 'good');
+          engine.changed();
         }
       },
-      async startPhase(engine, { player }) {
-        const pending = player.skillState.twinPending || []; player.skillState.twinPending = null;
-        player.skillState.twinList = [];
-        if (pending.length) {
-          player.skillState.twinReplaying = true;
-          engine.log(`${player.name} 发动【双生魔法】，再次使用上回合的 ${pending.length} 张牌。`, 'good');
-          try { for (const info of pending) { if (!player.alive || engine.over) break; await autoReplay(engine, player, info); } }
-          finally { player.skillState.twinReplaying = false; }
+      startPhase(engine, { player }) {
+        const unlocked = (player.pile || []).filter((c) => c.twinStoredBy === player.id && !c.twinReady);
+        unlocked.forEach((c) => { c.twinReady = true; });
+        if (unlocked.length) {
+          engine.log(`${player.name} 的【双生魔法】牌框解锁 ${unlocked.length} 张牌，本回合可以使用。`, 'good');
+          engine.changed();
         }
       },
-      async endPhase(engine, { player }) {
-        player.skillState.twinPending = (player.skillState.twinList || []).slice(0, 8); // 防过长
-        player.skillState.twinList = [];
-      },
+    },
+  },
+  shikongmen: {
+    name: '时空之门', active: true, perTurn: true,
+    desc: '回合技：弃掉武将牌上的4张牌，使一名角色获得1个额外回合。',
+    async action(engine, { player, move }) {
+      if (player.flags.shikongmenUsed) return;
+      const stored = (player.pile || []).filter((c) => c.twinStoredBy === player.id);
+      const ids = [...new Set(move.cards || [])];
+      const chosen = ids.map((id) => stored.find((c) => c.id === id)).filter(Boolean);
+      const target = engine.playerById(move.targetId);
+      if (chosen.length !== 4 || !target?.alive) {
+        engine.log('【时空之门】需要弃置4张武将牌上的牌并选择一名存活角色。', 'system');
+        return;
+      }
+      player.flags.shikongmenUsed = true;
+      chosen.forEach((c) => {
+        removeFrom(player.pile, c);
+        delete c.twinStoredBy;
+        delete c.twinReady;
+      });
+      engine.toDiscard(chosen, player);
+      engine.grantExtraTurn(target);
+      engine.log(`${player.name} 发动【时空之门】，弃置4张牌，令 ${target.name} 获得一个额外回合！`, 'play');
+      engine.changed();
     },
   },
 

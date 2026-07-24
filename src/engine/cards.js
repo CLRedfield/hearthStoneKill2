@@ -105,7 +105,7 @@ export const CARD_DEFS = {
   wukehandong: { name: '无可撼动盾', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, halve: true, desc: '你受到的伤害减半（向下取整）。' },
   tadun: { name: '塔盾', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, absorb: 4, noShan: true, desc: '可抵挡共4点伤害然后损坏；你无法使用【闪】。' },
   esinoshield: { name: '埃辛诺斯盾', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, immuneInstances: 2, desc: '免疫2次伤害，然后损坏。' },
-  robe: { name: '防护长袍', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, blockDirectional: true, desc: '其他角色的指向性锦囊牌无法指定你。' },
+  robe: { name: '防护长袍', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.ARMOR, blockDirectional: true, breakAfterDamage: 2, desc: '其他角色的指向性锦囊牌无法指定你；你累计受到2点伤害后，此牌进入弃牌堆。' },
   // ========== 奥秘（盖放，触发后弃置） ==========
   zhengfa: { name: '蒸发', type: CARD_TYPE.SECRET, on: 'damageAfter', desc: '奥秘：一名角色对你造成伤害后，弃掉其所有装备和奥秘。' },
   zhasi: { name: '诈死', type: CARD_TYPE.SECRET, on: 'death', desc: '奥秘：当你死亡时，你在当前回合结束后复活并具有1点生命。' },

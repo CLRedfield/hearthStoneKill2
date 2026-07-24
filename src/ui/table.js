@@ -228,11 +228,16 @@ export class GameUI {
       add({ key: 'heartguard', label: '护心', value: `${dodge + counter}/${cap * 2}`, color: '#8880c5', desc: `本轮额度：闪避 ${dodge}/${cap}，法术反制 ${counter}/${cap}。` });
     }
     if (skills.has('shuangsheng')) {
-      const pending = state.twinPending || [];
-      const current = state.twinCurrent || [];
-      const source = pending.length ? pending : current;
-      const cards = source.map((c, i) => ({ ...c, id: `twin_${i}`, name: CARD_DEFS[c.kind]?.name || c.kind }));
-      add({ key: 'twin', label: pending.length ? '待双生' : '双生', value: source.length, color: '#6f8ed2', cards, desc: `${pending.length ? '下个回合待重演' : '本回合已记录'}：${named(cards)}` });
+      const twins = pile.filter((c) => c.twinStoredBy === p.id);
+      const ready = twins.filter((c) => c.twinReady);
+      const stateNow = this.engine.snapshot(this.viewerId);
+      const replayActive = ready.length > 0 && stateNow.turnId === p.id && stateNow.phase === PHASE.PLAY;
+      const preview = twins.map((c) => `${c.twinReady ? '可用' : '待启'}·${SUIT_SYMBOL[c.suit] || ''}${rankLabel(c.number)} ${c.name || CARD_DEFS[c.kind]?.name || c.kind}`);
+      add({
+        key: 'twin', label: '双生', value: twins.length, color: '#6f8ed2', cards: twins,
+        preview, active: replayActive,
+        desc: `武将牌上的双生牌：${named(twins)}。可用 ${ready.length} 张，待下回合 ${twins.length - ready.length} 张。`,
+      });
     }
     return items;
   }
@@ -242,34 +247,39 @@ export class GameUI {
     const body = el('div', { class: 'resource-viewer' });
     let ov;
     const stateNow = this.engine.snapshot(this.viewerId);
-    const canReplay = item.key === 'believer'
-      && p.id === this.viewerId
+    const commonReplay = p.id === this.viewerId
       && this.pending?.req?.type === REQ.PLAY_TURN
-      && this.me?.flags?.xintuReplay
       && stateNow.turnId === this.viewerId
       && stateNow.phase === PHASE.PLAY;
+    const sourcePile = commonReplay && item.key === 'believer' && this.me?.flags?.xintuReplay
+      ? 'xintu'
+      : commonReplay && item.key === 'twin'
+        ? 'twin'
+        : null;
+    const canReplay = !!sourcePile;
     item.cards.forEach((c) => {
-      const naturalOptions = canReplay
+      const cardCanReplay = canReplay && (item.key !== 'twin' || c.twinReady === true);
+      const naturalOptions = cardCanReplay
         ? cardPlayOptions(this.engine, this.me, c).filter((o) => o.card === c)
         : [];
       const cardNode = miniCardNode(c, naturalOptions.length ? async () => {
         let option = naturalOptions[0];
         if (naturalOptions.length > 1) {
-          option = await chooseDialog('重新打出为：', naturalOptions.map((o) => ({ value: o, label: o.asName })), { closable: true });
+          option = await chooseDialog('从武将牌上使用为：', naturalOptions.map((o) => ({ value: o, label: o.asName })), { closable: true });
         }
         if (!option) return;
         ov.close();
-        this._setActive(c, { ...option, sourcePile: 'xintu' });
+        this._setActive(c, { ...option, sourcePile });
       } : null);
       if (canReplay) {
         cardNode.classList.add('resource-replay-card');
-        if (!naturalOptions.length) cardNode.classList.add('disabled');
+        if (!cardCanReplay || !naturalOptions.length) cardNode.classList.add('disabled');
       }
       body.appendChild(cardNode);
     });
     ov = openOverlay({
       title: canReplay
-        ? `${p.general?.name || p.name} · ${item.label}（点击牌面重新打出）`
+        ? `${p.general?.name || p.name} · ${item.label}（点击可用牌面打出）`
         : `${p.general?.name || p.name} · ${item.label}（${item.cards.length}）`,
       bodyNode: body,
       className: 'wide',
@@ -961,6 +971,15 @@ export class GameUI {
         const tgt = await this._pickPlayer('邪火：选择目标（弃其装备并置入古尔丹之手）', engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;
         this._resolve({ type: 'skill', skill, cards, targetId: tgt });
+        return;
+      }
+      if (skill === 'shikongmen') {
+        const stored = (me.pile || []).filter((c) => c.twinStoredBy === me.id);
+        const cards = await this._pickCards('时空之门：选择弃置的4张双生牌', stored, 4, 4);
+        if (!cards) return;
+        const targetId = await this._pickPlayer('时空之门：选择获得额外回合的角色', engine.alivePlayers);
+        if (!targetId) return;
+        this._resolve({ type: 'skill', skill, cards, targetId });
         return;
       }
       if (skill === 'xintu') {

@@ -165,6 +165,10 @@ export function activeSkillOptions(engine, p) {
     return isBlack(c.suit) && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
   });
   if (can('xintu') && !p.skillState.xintuUsed && xintuCards.length) out.push({ skill: 'xintu', name: '信徒(限)' });
+  const twinCards = (p.pile || []).filter((c) => c.twinStoredBy === p.id);
+  if (can('shikongmen') && !p.flags.shikongmenUsed && twinCards.length >= 4) {
+    out.push({ skill: 'shikongmen', name: '时空之门' });
+  }
   if (can('mingyun') && !p.flags.mingyunUsed) out.push({ skill: 'mingyun', name: '命运之轮' });
   if (can('fushi2') && !p.flags.fushi2Used && p.hand.filter(usable).length) out.push({ skill: 'fushi2', name: '腐蚀' });
   if (can('diyu') && !p.flags.diyuUsed && others) out.push({ skill: 'diyu', name: '低语' });

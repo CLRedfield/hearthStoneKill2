@@ -165,7 +165,7 @@ export const HS_GENERALS = {
   zerila: {
     id: 'zerila', name: '泽瑞拉', faction: FACTION.ALLIANCE, hp: 4, title: '虔诚信徒',
     skills: ['shengchu', 'xukongci', 'xintu'],
-    bio: '神圣之触（锁定技）：你回合内无法造成伤害，回1并摸2。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：你使用的黑色基本或锦囊牌置于武将牌上；发动后可在本回合将这些牌重新打出。',
+    bio: '神圣之触（锁定技）：伤害牌未造成伤害后回1摸1；若本回合未造成伤害，结束时再触发一次。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：本回合可打出武将牌上的黑色基本/锦囊牌，且两个锁定技同时生效。',
   },
   vargoth: {
     id: 'vargoth', name: '瓦格斯', faction: FACTION.ALLIANCE, hp: 4, title: '幻影法师',
@@ -174,8 +174,8 @@ export const HS_GENERALS = {
   },
   kadgar: {
     id: 'kadgar', name: '卡德加', faction: FACTION.ALLIANCE, hp: 4, title: '守护者',
-    skills: ['shuangsheng'],
-    bio: '双生魔法（锁定技）：你每回合使用的第一张基本/锦囊牌，将在你下个回合开始时再使用一次。',
+    skills: ['shuangsheng', 'shikongmen'],
+    bio: '双生魔法（锁定技）：使用的基本/锦囊牌置于武将牌上，下个回合开始后可以使用。时空之门（回合技）：弃置武将牌上的4张牌，令一名角色获得一个额外回合。',
   },
   alleria: {
     id: 'alleria', name: '奥蕾莉亚', faction: FACTION.ALLIANCE, hp: 3, title: '光明游侠',

@@ -19,6 +19,8 @@ export class GameEngine {
     this.deck = [];
     this.discard = [];
     this.turnIndex = 0;     // 当前回合玩家在 players 中的下标
+    this.extraTurnQueue = [];
+    this._extraTurnResumeIndex = null;
     this.phase = null;
     this.round = 0;
     this.over = false;
@@ -388,10 +390,11 @@ export class GameEngine {
   // 装备牌
   equip(player, card) {
     const slot = card.slot;
-    // 初始化护甲耐久（塔盾吸收池 / 埃辛诺斯盾免疫次数）
+    // 初始化护甲耐久（塔盾吸收池 / 埃辛诺斯盾免疫次数 / 防护长袍受伤累计）
     const d = CARD_DEFS[card.kind] || {};
     if (d.absorb) card.absorbLeft = d.absorb;
     if (d.immuneInstances) card.immuneCharges = d.immuneInstances;
+    if (d.breakAfterDamage) card.damageTaken = 0;
     if (d.immuneNonDiamondSha) player.iceHeartImmune = true; // 凝冰护盾：装备即获得对红桃【杀】的免疫（持续到你下回合开始）
     // 骨架（玛洛加尔）：武器/防具可装2件，先填主栏再填副栏，满则替换主栏
     const dual = hasSkill(player, 'gujia') && (slot === EQUIP_SLOT.WEAPON || slot === EQUIP_SLOT.ARMOR);
@@ -425,8 +428,48 @@ export class GameEngine {
     this.emitter.emit('gameover', this.winners);
   }
 
+  grantExtraTurn(player) {
+    if (!player?.alive) return false;
+    this.extraTurnQueue.push(player.id);
+    this.log(`${player.name} 获得了一个额外回合。`, 'good');
+    return true;
+  }
+
   _advanceTurn() {
     const n = this.players.length;
+    if (!n) return;
+    let extra = null;
+    while (this.extraTurnQueue.length && !extra) {
+      const candidate = this.playerById(this.extraTurnQueue.shift());
+      if (candidate?.alive) extra = candidate;
+    }
+    if (extra) {
+      // 第一个额外回合开始前保存正常座次；连续额外回合共用同一个恢复点
+      if (this._extraTurnResumeIndex == null) {
+        for (let k = 1; k <= n; k++) {
+          const i = (this.turnIndex + k) % n;
+          if (this.players[i].alive) {
+            this._extraTurnResumeIndex = i;
+            break;
+          }
+        }
+      }
+      this.turnIndex = this.players.indexOf(extra);
+      return;
+    }
+    // 所有额外回合结束后，回到原本应行动的角色；若其已死亡则顺延
+    if (this._extraTurnResumeIndex != null) {
+      const resume = this._extraTurnResumeIndex;
+      this._extraTurnResumeIndex = null;
+      for (let k = 0; k < n; k++) {
+        const i = (resume + k) % n;
+        if (this.players[i].alive) {
+          this.turnIndex = i;
+          return;
+        }
+      }
+      return;
+    }
     let i = this.turnIndex;
     for (let k = 0; k < n; k++) {
       i = (i + 1) % n;
@@ -734,19 +777,26 @@ export class GameEngine {
     const targets = (move.targets || []).map((t) => (typeof t === 'string' ? this.playerById(t) : t)).filter(Boolean);
     const sources = card.virtual ? card.sourceCards : [card];
     const fromXintu = move.sourcePile === 'xintu';
-    if (fromXintu) {
+    const fromTwin = move.sourcePile === 'twin';
+    const fromPile = fromXintu || fromTwin;
+    if (fromPile) {
       const ty = CARD_DEFS[card.kind]?.type;
-      const allowed = player.flags?.xintuReplay
-        && player.skillState?.xintuUsed
-        && this.turnOwner === player
+      const common = this.turnOwner === player
         && this.phase === PHASE.PLAY
         && !card.virtual
         && sources.length === 1
-        && player.pile.includes(card)
-        && isBlack(card.suit)
-        && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
+        && player.pile.includes(card);
+      const allowed = fromXintu
+        ? common
+          && player.flags?.xintuReplay
+          && player.skillState?.xintuUsed
+          && isBlack(card.suit)
+          && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK)
+        : common
+          && card.twinStoredBy === player.id
+          && card.twinReady === true;
       if (!allowed) {
-        this.log(`${player.name} 当前不能从【信徒】牌框中使用这张牌。`, 'system');
+        this.log(`${player.name} 当前不能从【${fromXintu ? '信徒' : '双生魔法'}】牌框中使用这张牌。`, 'system');
         return;
       }
       removeFrom(player.pile, card);
@@ -760,8 +810,8 @@ export class GameEngine {
     if (poisoned) {
       const eligible = player.hand.filter((c) => c.number > (card.number || 0));
       if (!eligible.length) {
-        // 取消使用时退回原区域；【信徒】牌不能因此混入手牌。
-        sources.forEach((c) => (fromXintu ? player.pile : player.hand).push(c));
+        // 取消使用时退回原区域；武将牌上的牌不能因此混入手牌。
+        sources.forEach((c) => (fromPile ? player.pile : player.hand).push(c));
         this.log(`${player.name} 受【毒雾】影响，无更大点数的牌可弃，无法使用【${card.name}】。`, 'bad');
         this.changed();
         return;
@@ -892,12 +942,6 @@ export class GameEngine {
   // 造成伤害的核心流程
   async dealDamage({ source, target, amount = 1, nature = 'normal', card = null, dodgeable = false }) {
     if (!target.alive || amount <= 0) return;
-    // 神圣之触：选择生效后，泽瑞拉在自己的整个回合内无法造成任何伤害
-    if (source && this.turnOwner === source && source.skillState?.zerilaActive === 'shengchu') {
-      this.log(`${source.name} 受【神圣之触】影响，无法造成伤害。`, 'good');
-      await this.pause(200);
-      return;
-    }
     // 冰火（晨拥）：你对有装备的角色造成的伤害+1（对任意伤害生效）
     if (source && source !== target && hasSkill(source, 'binhuo') && Object.values(target.equips).some(Boolean)) amount += 1;
     // 炎躯（拉格纳罗斯）：免疫红色牌造成的伤害
@@ -1047,6 +1091,28 @@ export class GameEngine {
       'damage'
     );
     target.hp -= amount;
+    if (source) {
+      // 神圣之触：记录本回合是否造成过伤害，并标记当前结算的伤害牌已命中
+      if (this.turnOwner === source && source.skillState) {
+        source.skillState.shengchuDealtDamage = true;
+      }
+      const frames = this._cardDamageStack || [];
+      for (let i = frames.length - 1; i >= 0; i--) {
+        if (frames[i].user === source) {
+          frames[i].dealtDamage = true;
+          break;
+        }
+      }
+    }
+    // 防护长袍：按最终实际受到的伤害累计，达到上限后自动进入弃牌堆
+    for (const armor of armorsOf(target).filter((a) => (CARD_DEFS[a.kind] || {}).breakAfterDamage)) {
+      const limit = CARD_DEFS[armor.kind].breakAfterDamage;
+      armor.damageTaken = (armor.damageTaken || 0) + amount;
+      this.log(`${target.name} 的【${armor.name}】累计受到伤害 ${armor.damageTaken}/${limit}。`);
+      if (armor.damageTaken >= limit) {
+        _removeArmor(armor);
+      }
+    }
     // 非公平游戏（奥秘）：本轮受过伤 → 观察窗口作废，下轮重新累计
     target.secrets?.forEach((s) => { if (s.kind === 'feigongping') s.dmgDirty = true; });
     // 复活之甲：累计回合外受到的伤害（用于“一轮最多3点”上限）
@@ -1400,8 +1466,6 @@ export class GameEngine {
           treasures: [...(p.skillState.treasures || [])],
           miracleCount: p.skillState.miracleCount || 0,
           xiehuoCount: p.skillState.xiehuoCount || 0,
-          twinPending: [...(p.skillState.twinPending || [])],
-          twinCurrent: [...(p.skillState.twinList || [])],
           liuxingCounts: { ...(p.skillState.liuxingCounts || {}) },
           huxinDodge: p.skillState.huxinDodge || 0,
           huxinWuxie: p.skillState.huxinWuxie || 0,

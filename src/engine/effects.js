@@ -132,6 +132,10 @@ export async function resolveCard(engine, ctx) {
   // 记录当前结算者：其使用/打出后进入弃牌堆的牌可被【低吼】劫走（嵌套时保存恢复）
   const _prevActor = engine._actingUser;
   engine._actingUser = ctx.user;
+  // 神圣之触：为每次卡牌结算独立记录是否由使用者实际造成过伤害
+  const damageFrame = { user: ctx.user, dealtDamage: false };
+  const damageStack = (engine._cardDamageStack = engine._cardDamageStack || []);
+  damageStack.push(damageFrame);
   // 抄袭（奥秘）：记录回合拥有者本回合使用过的实体牌
   if (engine.turnOwner === ctx.user && ctx.card) {
     const reals = ctx.card.virtual ? (ctx.card.sourceCards || []) : [ctx.card];
@@ -147,13 +151,24 @@ export async function resolveCard(engine, ctx) {
   let out;
   try {
     out = await _resolveCard(engine, ctx);
+    const frameIndex = damageStack.lastIndexOf(damageFrame);
+    if (frameIndex >= 0) damageStack.splice(frameIndex, 1);
     // 所有成功使用的牌统一在此计数并触发 usedCard，确保每种牌恰好触发一次。
     if (!ctx.cardUseCancelled) {
       ctx.user.flags.cardsUsed = (ctx.user.flags.cardsUsed || 0) + 1;
-      await triggerSkill(engine, 'usedCard', { player: ctx.user, card: ctx.card });
+      await triggerSkill(engine, 'usedCard', {
+        player: ctx.user,
+        card: ctx.card,
+        dealtDamage: damageFrame.dealtDamage,
+      });
     }
   }
-  finally { engine._actingUser = _prevActor; }
+  finally {
+    const frameIndex = damageStack.lastIndexOf(damageFrame);
+    if (frameIndex >= 0) damageStack.splice(frameIndex, 1);
+    if (!damageStack.length) delete engine._cardDamageStack;
+    engine._actingUser = _prevActor;
+  }
   await fireRatTrap(engine, ctx.user);
   await fireSarathas(engine, ctx.user, ctx.card);
   return out;

@@ -238,6 +238,9 @@ export class AIAgent {
     if (player.flags?.xintuReplay) {
       (player.pile || []).forEach((card) => candidates.push({ card, sourcePile: 'xintu' }));
     }
+    (player.pile || []).filter((card) => card.twinStoredBy === player.id && card.twinReady).forEach((card) => {
+      candidates.push({ card, sourcePile: 'twin' });
+    });
     for (const { card: c, sourcePile } of candidates) {
       let opts;
       try { opts = cardPlayOptions(engine, player, c); } catch (e) { opts = []; }
@@ -271,6 +274,13 @@ export class AIAgent {
     // 按“行为别名”匹配（兼容炉石变体锦囊：behaves 别名或同 kind）
     const handOfBeh = (beh) => hand.find((c) => !c.frozen && (CARD_DEFS[c.kind]?.behaves === beh || c.kind === beh));
 
+    // 时空之门：有足够双生牌时优先为自己开启额外回合
+    const portalCards = (player.pile || []).filter((c) => c.twinStoredBy === player.id);
+    if (hasSkill(player, 'shikongmen') && !player.flags.shikongmenUsed && portalCards.length >= 4) {
+      const cards = [...portalCards].sort((a, b) => cardValue(a) - cardValue(b)).slice(0, 4).map((c) => c.id);
+      return { type: 'skill', skill: 'shikongmen', cards, targetId: player.id };
+    }
+
     // 【信徒】发动后的本回合优先逐张重打武将牌上的牌；每张牌只能离开牌框一次。
     if (player.flags?.xintuReplay) {
       const stored = [...(player.pile || [])].sort((a, b) => cardValue(b) - cardValue(a));
@@ -292,6 +302,30 @@ export class AIAgent {
           }
           return { type: 'play', card: c, targets, sourcePile: 'xintu' };
         }
+      }
+    }
+
+    // 【双生魔法】在下回合解锁后，可逐张从武将牌上使用；使用后等待下回合再次解锁。
+    const twinStored = (player.pile || [])
+      .filter((c) => c.twinStoredBy === player.id && c.twinReady)
+      .sort((a, b) => cardValue(b) - cardValue(a));
+    for (const c of twinStored) {
+      const opts = cardPlayOptions(engine, player, c).filter((o) => o.card === c);
+      for (const o of opts) {
+        if (o.kind === 'jiedao' || o.kind === 'hengchong' || o.bottledOther) continue;
+        let targets = [];
+        if (o.needTarget) {
+          const available = o.kind === 'sha' ? shaTargets(engine, player, c) : validTargets(engine, player, c);
+          const target = available.find((t) => enemies.includes(t)) || available[0];
+          if (!target) continue;
+          targets = [target];
+        } else {
+          const def = CARD_DEFS[c.kind] || {};
+          if (def.target === 'all') targets = engine.alivePlayers.slice();
+          else if (def.target === 'all_other') targets = engine.alivePlayers.filter((p) => p !== player);
+          else if (['tao', 'jiu', 'wuzhong', 'shandian'].includes(o.kind)) targets = [player];
+        }
+        return { type: 'play', card: c, targets, sourcePile: 'twin' };
       }
     }
 
