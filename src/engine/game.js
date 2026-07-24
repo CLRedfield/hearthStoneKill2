@@ -781,7 +781,6 @@ export class GameEngine {
     const replayable = (cdef.type === CARD_TYPE.BASIC || cdef.type === CARD_TYPE.TRICK) && cardAs(card) !== 'jiu' && card.kind !== 'wuxie';
     const doRishi = player.flags.rishiPending && replayable;
     if (doRishi) player.flags.rishiPending = false;
-    if (player.skillState) player.skillState._dmgThisCard = false; // 神圣之触：本次使用前清空“已造成伤害”标记
     await resolveCard(this, { user: player, card, targets, options: move.options || {} });
     if (doRishi && player.alive && !this.over) {
       this.log(`${player.name}【日蚀】令【${card.name}】再使用一次！`, 'good');
@@ -893,6 +892,12 @@ export class GameEngine {
   // 造成伤害的核心流程
   async dealDamage({ source, target, amount = 1, nature = 'normal', card = null, dodgeable = false }) {
     if (!target.alive || amount <= 0) return;
+    // 神圣之触：选择生效后，泽瑞拉在自己的整个回合内无法造成任何伤害
+    if (source && this.turnOwner === source && source.skillState?.zerilaActive === 'shengchu') {
+      this.log(`${source.name} 受【神圣之触】影响，无法造成伤害。`, 'good');
+      await this.pause(200);
+      return;
+    }
     // 冰火（晨拥）：你对有装备的角色造成的伤害+1（对任意伤害生效）
     if (source && source !== target && hasSkill(source, 'binhuo') && Object.values(target.equips).some(Boolean)) amount += 1;
     // 炎躯（拉格纳罗斯）：免疫红色牌造成的伤害
@@ -1044,7 +1049,6 @@ export class GameEngine {
     target.hp -= amount;
     // 非公平游戏（奥秘）：本轮受过伤 → 观察窗口作废，下轮重新累计
     target.secrets?.forEach((s) => { if (s.kind === 'feigongping') s.dmgDirty = true; });
-    if (source && source.skillState) source.skillState._dmgThisCard = true; // 神圣之触：标记本次使用的牌已造成伤害
     // 复活之甲：累计回合外受到的伤害（用于“一轮最多3点”上限）
     if (this.turnOwner !== target && armorsOf(target).some((a) => (CARD_DEFS[a.kind] || {}).offTurnCap != null)) {
       target.offTurnDamage = (target.offTurnDamage || 0) + amount;

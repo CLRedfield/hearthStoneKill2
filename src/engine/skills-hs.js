@@ -87,13 +87,6 @@ async function autoReplay(engine, player, info) {
   await resolveCard(engine, { user: player, card: v, targets, options: {} });
 }
 const cardInfo = (c) => ({ kind: c.kind, suit: c.suit, number: c.number, red: c.red });
-// 神圣之触：判断一张牌是否“可造成伤害”
-const DAMAGE_BEHAVES = ['juedou', 'hsjuedou', 'nanman', 'wanjian', 'daoshan', 'oddhp', 'ksenmask', 'hengchong', 'fengkuang'];
-function isDamageCard(card) {
-  if (cardAs(card) === 'sha') return true;
-  const beh = CARD_DEFS[card.kind]?.behaves || card.kind;
-  return DAMAGE_BEHAVES.includes(beh);
-}
 
 // 立即使用一张“实体牌”（暗影箭雨夺取后使用）：自动选目标，由 user 结算
 // 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
@@ -1305,25 +1298,34 @@ export const HS_SKILLS = {
   // ===== 泽瑞拉（联盟）=====
   // 神圣之触 / 虚空之刺：在你的回合开始前选择其一，本回合只有所选生效（zerilaActive 记录）
   shengchu: {
-    name: '神圣之触', desc: '锁定技：你回合内使用可造成伤害的牌未造成伤害后，你回复1点体力。（回合开始时与【虚空之刺】二选一生效）',
+    name: '神圣之触', desc: '锁定技：你回合内无法造成伤害，你回复1点体力，抽2张牌（回合开始时与【虚空之刺】二选一生效）',
     triggers: {
       async startPhase(engine, { player }) {
         // 仅在同时拥有两个锁定技时需要二选一
         const hasBoth = (player.skills || []).includes('xukongci');
-        if (!hasBoth) { player.skillState.zerilaActive = 'shengchu'; return; }
         let pick = 'shengchu';
-        const agent = engine.agentOf(player);
-        if (agent?.kind === 'ai') pick = player.hp <= player.maxHp - 1 ? 'shengchu' : 'xukongci';
-        else { const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: '本回合生效哪个锁定技？', options: [{ value: 'shengchu', label: '神圣之触（未命中回血）' }, { value: 'xukongci', label: '虚空之刺（回血即群伤）' }] }); pick = r?.value || 'shengchu'; }
+        if (hasBoth) {
+          const agent = engine.agentOf(player);
+          if (agent?.kind === 'ai') pick = player.hp < player.maxHp || player.hand.length <= 2 ? 'shengchu' : 'xukongci';
+          else {
+            const r = await engine.ask(player, {
+              type: REQ.CHOOSE_OPTION,
+              title: '本回合生效哪个锁定技？',
+              options: [
+                { value: 'shengchu', label: '神圣之触（无法造成伤害，回复1并摸2）' },
+                { value: 'xukongci', label: '虚空之刺（回血即群伤）' },
+              ],
+            });
+            pick = r?.value || 'shengchu';
+          }
+        }
         player.skillState.zerilaActive = pick;
         engine.log(`${player.name} 本回合启用【${pick === 'shengchu' ? '神圣之触' : '虚空之刺'}】。`, 'good');
-      },
-      async usedCard(engine, { player, card }) {
-        if (engine.turnOwner !== player || player.skillState.zerilaActive !== 'shengchu') return;
-        if (!isDamageCard(card)) return;                 // 仅“可造成伤害的牌”
-        if (player.skillState._dmgThisCard) return;       // 这张牌已造成伤害 → 不回血
-        engine.log(`${player.name} 发动【神圣之触】，回复1点体力。`, 'good');
-        await engine.recover(player, 1);
+        if (pick === 'shengchu') {
+          engine.log(`${player.name} 发动【神圣之触】，回复1点体力并摸2张牌。`, 'good');
+          await engine.recover(player, 1);
+          engine.drawCards(player, 2);
+        }
       },
     },
   },

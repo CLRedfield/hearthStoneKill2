@@ -165,7 +165,7 @@ export const HS_GENERALS = {
   zerila: {
     id: 'zerila', name: '泽瑞拉', faction: FACTION.ALLIANCE, hp: 4, title: '虔诚信徒',
     skills: ['shengchu', 'xukongci', 'xintu'],
-    bio: '神圣之触（锁定技）：你回合内伤害性牌未造成伤害后回1。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：你使用的黑色基本或锦囊牌置于武将牌上；发动后可在本回合将这些牌重新打出。',
+    bio: '神圣之触（锁定技）：你回合内无法造成伤害，回1并摸2。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：你使用的黑色基本或锦囊牌置于武将牌上；发动后可在本回合将这些牌重新打出。',
   },
   vargoth: {
     id: 'vargoth', name: '瓦格斯', faction: FACTION.ALLIANCE, hp: 4, title: '幻影法师',
