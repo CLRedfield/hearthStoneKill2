@@ -21,6 +21,12 @@ let CONNECTION_BUSY = false;
 const ONLINE_SESSION_KEY = 'sgs_online_session_v1';
 const ROOM_CODE_RE = /^[A-Z2-9]{6}$/;
 
+export const ONLINE_TIMEOUTS = Object.freeze({
+  ready: 16_000,
+  presence: 32_000,
+  action: 36_000,
+});
+
 function loadOnlineSession() {
   try {
     const value = JSON.parse(sessionStorage.getItem(ONLINE_SESSION_KEY) || 'null');
@@ -530,7 +536,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
 
     const remoteIds = seats.filter((s) => s.isHuman && s.id !== myId && room.players?.find((p) => p.id === s.id)?.online !== false).map((s) => s.id);
     if (remoteIds.length) toast('等待其他玩家进入对局…', 'info', 1800);
-    const missing = await hub.waitForReady(remoteIds, 8000);
+    const missing = await hub.waitForReady(remoteIds, ONLINE_TIMEOUTS.ready);
     if (missing.length) toast('部分玩家尚未进入，暂由 AI 接管其操作', 'error', 3000);
     if (!started || room.status !== 'playing') return;
     engine.run().catch((e) => { console.error(e); toast('对局错误', 'error'); });
@@ -702,7 +708,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
         const player = room.players[i];
         if (player.id === room.hostId) continue;
         const seen = presenceSeen.get(player.id) || 0;
-        const online = now - seen <= 16000;
+        const online = now - seen <= ONLINE_TIMEOUTS.presence;
         if (player.online !== online) { player.online = online; changed = true; if (!online) toast(`${player.name} 已掉线，操作将由 AI 接管`, 'error', 2600); }
         if (room.status === 'waiting' && !online && now - seen > 90000) { room.players.splice(i, 1); presenceSeen.delete(player.id); changed = true; }
       }
@@ -748,7 +754,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     }));
     const presenceTimer = setInterval(sendPresence, 4000);
     const hostTimer = setInterval(() => {
-      if (BUS.connected && Date.now() - lastHostHeartbeat > 16000 && netStatus !== 'host-offline') {
+      if (BUS.connected && Date.now() - lastHostHeartbeat > ONLINE_TIMEOUTS.presence && netStatus !== 'host-offline') {
         netStatus = 'host-offline'; CHAT?.setStatus('host-offline'); toast('房主连接中断，正在等待恢复…', 'error', 3000);
         if (!started && screen) render(room);
       }
@@ -818,7 +824,7 @@ class MqttHostHub {
     for (const pending of this.pending.values()) { BUS.clearRetained(this.T.req(pending.playerId)); pending.d.resolve(null); }
     this.pending.clear();
   }
-  async waitForReady(playerIds, timeoutMs = 8000) {
+  async waitForReady(playerIds, timeoutMs = ONLINE_TIMEOUTS.ready) {
     const deadline = Date.now() + timeoutMs;
     let missing = playerIds.filter((id) => !this.readyPlayers.has(id));
     while (missing.length && Date.now() < deadline && !this.stopped) {
@@ -858,7 +864,7 @@ class MqttHostHub {
         this.failedPlayers.add(playerId);
         pending.d.resolve(null);
       }
-    }, 18000);
+    }, ONLINE_TIMEOUTS.action);
     const result = await d.promise;
     clearTimeout(timer);
     await BUS.clearRetained(this.T.req(playerId));
