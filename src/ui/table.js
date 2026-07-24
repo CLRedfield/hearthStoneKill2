@@ -181,8 +181,18 @@ export class GameUI {
       const shas = pile.filter((c) => c.kind === 'sha' || CARD_DEFS[c.kind]?.as === 'sha');
       add({ key: 'fire-eye', label: '火眼', value: shas.length, color: '#d66a4d', cards: shas, desc: `已收集 ${shas.length}/5 张【杀】。内容：${named(shas)}` });
     } else if (skills.has('xintu')) {
-      const banked = pile.filter((c) => c.suit === 'spade' || c.suit === 'club');
-      add({ key: 'believer', label: '信徒', value: banked.length, color: '#8e82c5', cards: banked, desc: `武将牌上的黑色牌：${named(banked)}` });
+      const banked = pile.filter((c) => {
+        const ty = CARD_DEFS[c.kind]?.type;
+        return (c.suit === 'spade' || c.suit === 'club') && (ty === 'basic' || ty === 'trick');
+      });
+      const stateNow = this.engine.snapshot(this.viewerId);
+      const replayActive = !!flags.xintuReplay && stateNow.turnId === p.id && stateNow.phase === PHASE.PLAY;
+      const preview = banked.map((c) => `${SUIT_SYMBOL[c.suit] || ''}${rankLabel(c.number)} ${c.name || CARD_DEFS[c.kind]?.name || c.kind}`);
+      add({
+        key: 'believer', label: '信徒', value: banked.length, color: '#8e82c5', cards: banked,
+        preview, active: replayActive,
+        desc: `武将牌上的黑色基本/锦囊牌：${named(banked)}。${replayActive ? '本回合可点击牌框重新打出。' : '发动限定技后，可在发动回合重新打出。'}`,
+      });
     }
 
     if (skills.has('longwang') || skills.has('shunpi') || skills.has('qtanying') || skills.has('bhlinghun')) {
@@ -230,10 +240,37 @@ export class GameUI {
   _openResourceViewer(p, item) {
     if (!item.cards?.length) return;
     const body = el('div', { class: 'resource-viewer' });
-    item.cards.forEach((c) => body.appendChild(miniCardNode(c)));
     let ov;
+    const stateNow = this.engine.snapshot(this.viewerId);
+    const canReplay = item.key === 'believer'
+      && p.id === this.viewerId
+      && this.pending?.req?.type === REQ.PLAY_TURN
+      && this.me?.flags?.xintuReplay
+      && stateNow.turnId === this.viewerId
+      && stateNow.phase === PHASE.PLAY;
+    item.cards.forEach((c) => {
+      const naturalOptions = canReplay
+        ? cardPlayOptions(this.engine, this.me, c).filter((o) => o.card === c)
+        : [];
+      const cardNode = miniCardNode(c, naturalOptions.length ? async () => {
+        let option = naturalOptions[0];
+        if (naturalOptions.length > 1) {
+          option = await chooseDialog('重新打出为：', naturalOptions.map((o) => ({ value: o, label: o.asName })), { closable: true });
+        }
+        if (!option) return;
+        ov.close();
+        this._setActive(c, { ...option, sourcePile: 'xintu' });
+      } : null);
+      if (canReplay) {
+        cardNode.classList.add('resource-replay-card');
+        if (!naturalOptions.length) cardNode.classList.add('disabled');
+      }
+      body.appendChild(cardNode);
+    });
     ov = openOverlay({
-      title: `${p.general?.name || p.name} · ${item.label}（${item.cards.length}）`,
+      title: canReplay
+        ? `${p.general?.name || p.name} · ${item.label}（点击牌面重新打出）`
+        : `${p.general?.name || p.name} · ${item.label}（${item.cards.length}）`,
       bodyNode: body,
       className: 'wide',
       closable: true,
@@ -247,13 +284,17 @@ export class GameUI {
     const row = el('div', { class: 'p-resources' });
     items.forEach((item) => {
       const tile = el('button', {
-        class: `resource-tile resource-${item.key}`,
+        class: `resource-tile resource-${item.key} ${item.preview?.length ? 'has-preview' : ''} ${item.active ? 'is-active' : ''}`,
         type: 'button',
         style: { '--resource': item.color },
         onclick: (e) => { e.stopPropagation(); hideTip(); this._openResourceViewer(p, item); },
       }, [
         el('span', { class: 'resource-value', text: item.value }),
         el('span', { class: 'resource-label', text: item.label }),
+        item.preview?.length ? el('span', {
+          class: 'resource-preview',
+          text: `${item.preview.slice(0, 3).join(' · ')}${item.preview.length > 3 ? ` · +${item.preview.length - 3}` : ''}`,
+        }) : null,
       ]);
       attachTip(tile, { title: item.label, sub: `当前：${item.value}`, desc: item.desc, accent: item.color });
       row.appendChild(tile);
@@ -745,6 +786,7 @@ export class GameUI {
   _confirmPlay() {
     const o = this.activeOption;
     if (!o) return;
+    const sourcePile = o.sourcePile;
     let targets = this.targets.slice();
     const options = {};
     if (this._isTwoStep(o)) {
@@ -762,7 +804,7 @@ export class GameUI {
       if (o.bottledOther) options.bottledOther = true; // 目标由点击选择
       else targets = [this.viewerId];
     } else if (def.behaves === 'shandian' || o.kind === 'shandian') targets = [this.viewerId];
-    const move = { type: 'play', card: o.card, targets, options };
+    const move = { type: 'play', card: o.card, targets, options, sourcePile };
     this._clearActive();
     this._resolve(move);
   }
@@ -923,7 +965,7 @@ export class GameUI {
       }
       if (skill === 'xintu') {
         const banked = (me.pile || []).filter((c) => c.suit === 'spade' || c.suit === 'club').length;
-        const ok = await chooseDialog(`信徒（限定技，整局一次）：收回武将牌上 ${banked} 张黑色牌到手牌，随后失去所有技能。确定？`, [{ value: true, label: '发动' }, { value: false, label: '取消' }]);
+        const ok = await chooseDialog(`信徒（限定技，整局一次）：本回合可从“信徒”牌框中重新打出武将牌上的 ${banked} 张牌。牌不会移入手牌；点击牌框即可选牌。确定？`, [{ value: true, label: '发动' }, { value: false, label: '取消' }]);
         if (ok) this._resolve({ type: 'skill', skill });
         return;
       }

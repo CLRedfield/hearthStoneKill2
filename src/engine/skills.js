@@ -78,6 +78,7 @@ export async function triggerSkill(engine, event, data) {
     case 'endPhase': await onEndPhase(engine, data); await hsRun(engine, 'endPhase', data, data.player); return;
     case 'usedCard': await hsRun(engine, 'usedCard', data, data.player); return;
     case 'recovered': await hsRun(engine, 'recovered', data, data.player); return;
+    case 'beforeDraw': await hsRun(engine, 'beforeDraw', data, data.player); return;
     case 'afterDraw': await hsRun(engine, 'afterDraw', data, data.player); return;
     case 'cardTwice': await hsRun(engine, 'cardTwice', data, data.player); return;
     case 'anyEndPhase': for (const p of engine.alivePlayers) await hsRun(engine, 'anyEndPhase', { ...data, owner: p }, p); return;

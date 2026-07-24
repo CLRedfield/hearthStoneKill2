@@ -160,7 +160,11 @@ export function activeSkillOptions(engine, p) {
   if (can('dihou') && !p.flags.dihouUsed && others) out.push({ skill: 'dihou', name: '低吼' });
   if (can('huoyan') && (p.pile || []).filter((c) => isSha(c)).length >= 5 && others) out.push({ skill: 'huoyan', name: '火眼' });
   if (can('lijian2') && !p.flags.lijian2Used && others) out.push({ skill: 'lijian2', name: '利箭' });
-  if (can('xintu') && !p.skillState.xintuUsed) out.push({ skill: 'xintu', name: '信徒(限)' });
+  const xintuCards = (p.pile || []).filter((c) => {
+    const ty = CARD_DEFS[c.kind]?.type;
+    return isBlack(c.suit) && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
+  });
+  if (can('xintu') && !p.skillState.xintuUsed && xintuCards.length) out.push({ skill: 'xintu', name: '信徒(限)' });
   if (can('mingyun') && !p.flags.mingyunUsed) out.push({ skill: 'mingyun', name: '命运之轮' });
   if (can('fushi2') && !p.flags.fushi2Used && p.hand.filter(usable).length) out.push({ skill: 'fushi2', name: '腐蚀' });
   if (can('diyu') && !p.flags.diyuUsed && others) out.push({ skill: 'diyu', name: '低语' });

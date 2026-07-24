@@ -968,7 +968,7 @@ function wireToCard(engine, player, wire) {
     const src = (wire.src || []).map((id) => findCardOnPlayer(player, id)).filter(Boolean);
     return virtualCard(wire.kind, src, { suit: wire.suit, number: wire.number, red: wire.red });
   }
-  if (wire.id) return findCardOnPlayer(player, wire.id);
+  if (wire.id) return findCardOnPlayer(player, wire.id) || (player.pile || []).find((c) => c.id === wire.id);
   return null;
 }
 function serializeResponse(type, resp) {

@@ -160,12 +160,12 @@ export const HS_GENERALS = {
   tess: {
     id: 'tess', name: '苔丝', faction: FACTION.ALLIANCE, hp: 4, title: '黑衣猎人',
     skills: ['fanzhao', 'faxian'],
-    bio: '翻找：出牌阶段从弃牌堆获得一张牌。发现（锁定技）：你摸牌后观看牌库顶若干张并任意排列于牌堆顶/底。',
+    bio: '翻找：出牌阶段从弃牌堆获得一张牌。发现（锁定技）：摸牌前观看牌库顶“摸牌数+1”张并任意排列于牌堆顶/底，然后摸牌。',
   },
   zerila: {
     id: 'zerila', name: '泽瑞拉', faction: FACTION.ALLIANCE, hp: 4, title: '虔诚信徒',
     skills: ['shengchu', 'xukongci', 'xintu'],
-    bio: '神圣之触（锁定技）：你回合内伤害性牌未造成伤害后回1。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：本回合【杀】无限制，用黑色基本/锦囊摸1。',
+    bio: '神圣之触（锁定技）：你回合内伤害性牌未造成伤害后回1。虚空之刺（锁定技）：你回合内每回1点对所有他人造1点。信徒（限定技）：你使用的黑色基本或锦囊牌置于武将牌上；发动后可在本回合将这些牌重新打出。',
   },
   vargoth: {
     id: 'vargoth', name: '瓦格斯', faction: FACTION.ALLIANCE, hp: 4, title: '幻影法师',

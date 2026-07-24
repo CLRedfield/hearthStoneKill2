@@ -1087,14 +1087,20 @@ export const HS_SKILLS = {
 
   // ===== 苔丝·发现（联盟）=====
   faxian: {
-    name: '发现', desc: '锁定技：你摸牌后，可观看牌库顶（摸牌数+1）张牌，并以任意顺序置于牌堆顶或牌堆底。',
+    name: '发现', desc: '锁定技：你摸牌前，可观看牌库顶（摸牌数+1）张牌，并以任意顺序置于牌堆顶或牌堆底，然后摸牌。',
     triggers: {
-      async afterDraw(engine, { player, count }) {
+      async beforeDraw(engine, { player, count }) {
+        if (!count || count < 0) return;
         engine._refillDeck();
         const n = Math.min((count || 0) + 1, engine.deck.length);
         const top = engine.deck.slice(0, n);
         if (!top.length) return;
-        const resp = await engine.ask(player, { type: REQ.GUANXING, cards: top, title: `发现：重新排列牌堆顶 ${top.length} 张牌` });
+        const resp = await engine.ask(player, {
+          type: REQ.GUANXING,
+          cards: top,
+          title: `发现：摸 ${count || 0} 张牌前，整理牌堆顶 ${top.length} 张牌`,
+          hint: `先整理即将摸到的牌。牌堆顶按从左到右的顺序摸取，本次将摸 ${count || 0} 张。`,
+        });
         if (resp && (resp.top || resp.bottom)) {
           const topIds = resp.top || top.map((c) => c.id);
           const newTop = topIds.map((id) => top.find((c) => c.id === id)).filter(Boolean);
@@ -1338,19 +1344,22 @@ export const HS_SKILLS = {
   },
   xintu: {
     name: '信徒', active: true, limited: true,
-    desc: '限定技：（平时）你使用的黑色基本/锦囊牌都置于武将牌上；发动时将这些牌收回手牌（本回合可打出），然后你失去所有技能。',
+    desc: '限定技：你使用的黑色基本或锦囊牌都会置于武将牌上；发动后，你可以在本回合内从武将牌上的“信徒”牌框中将这些牌重新打出。',
     async action(engine, { player }) {
+      const banked = (player.pile || []).filter((c) => {
+        const ty = CARD_DEFS[c.kind]?.type;
+        return isBlack(c.suit) && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
+      });
+      if (player.skillState.xintuUsed || !banked.length) return;
       player.skillState.xintuUsed = true;
-      const banked = (player.pile || []).filter((c) => isBlack(c.suit));
-      banked.forEach((c) => removeFrom(player.pile, c));
-      player.hand.push(...banked);
-      engine.log(`${player.name} 发动限定技【信徒】，收回 ${banked.length} 张黑色牌，并失去所有技能！`, 'play');
-      player.skills = []; player.lordSkills = [];
+      player.flags.xintuReplay = true;
+      engine.log(`${player.name} 发动限定技【信徒】，本回合可从武将牌上重新打出 ${banked.length} 张牌！`, 'play');
       engine.changed();
     },
     triggers: {
       // 平时：使用的黑色基本/锦囊牌置于武将牌上（而非进入弃牌堆）
       usedCard(engine, { player, card }) {
+        if (player.skillState.xintuUsed) return;
         const ty = CARD_DEFS[card.kind]?.type;
         if ((ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK) && isBlack(card.suit)) {
           const reals = card.virtual ? (card.sourceCards || []) : [card];

@@ -696,8 +696,9 @@ export class GameEngine {
       n = Math.max(0, n - dp);
       this.log(`${player.name} 受【血肉成灰】影响，少摸 ${dp} 张。`, 'bad');
     }
+    // 苔丝·发现等技能必须先根据最终摸牌数整理牌堆，再实际摸牌。
+    await triggerSkill(this, 'beforeDraw', { player, count: n });
     this.drawCards(player, n);
-    await triggerSkill(this, 'afterDraw', { player, count: n }); // 苔丝·发现
     await this.pause();
   }
 
@@ -729,17 +730,38 @@ export class GameEngine {
   // 处理“使用一张牌（含技能转化）”
   async _handlePlay(player, move) {
     const card = move.card; // 可能是实体牌或虚拟牌
+    if (!card) return;
     const targets = (move.targets || []).map((t) => (typeof t === 'string' ? this.playerById(t) : t)).filter(Boolean);
-    // 从手牌移除来源牌（虚拟牌移除其 sourceCards）
     const sources = card.virtual ? card.sourceCards : [card];
-    sources.forEach((c) => removeFromHand(player.hand, c));
+    const fromXintu = move.sourcePile === 'xintu';
+    if (fromXintu) {
+      const ty = CARD_DEFS[card.kind]?.type;
+      const allowed = player.flags?.xintuReplay
+        && player.skillState?.xintuUsed
+        && this.turnOwner === player
+        && this.phase === PHASE.PLAY
+        && !card.virtual
+        && sources.length === 1
+        && player.pile.includes(card)
+        && isBlack(card.suit)
+        && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
+      if (!allowed) {
+        this.log(`${player.name} 当前不能从【信徒】牌框中使用这张牌。`, 'system');
+        return;
+      }
+      removeFrom(player.pile, card);
+    } else {
+      // 从手牌移除来源牌（虚拟牌移除其 sourceCards）
+      sources.forEach((c) => removeFromHand(player.hand, c));
+    }
     this.changed();
     // 毒雾（洛欧塞布）：使用任何牌前须弃一张点数更大的牌，否则无法使用
     const poisoned = this.players.some((p) => p.alive && p.skillState?.duwuTarget === player.id);
     if (poisoned) {
       const eligible = player.hand.filter((c) => c.number > (card.number || 0));
       if (!eligible.length) {
-        sources.forEach((c) => player.hand.push(c)); // 退回手牌，取消使用
+        // 取消使用时退回原区域；【信徒】牌不能因此混入手牌。
+        sources.forEach((c) => (fromXintu ? player.pile : player.hand).push(c));
         this.log(`${player.name} 受【毒雾】影响，无更大点数的牌可弃，无法使用【${card.name}】。`, 'bad');
         this.changed();
         return;

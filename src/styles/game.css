@@ -92,12 +92,30 @@
 }
 .resource-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--resource); opacity: .9; }
 .resource-tile:hover { transform: translateY(-2px); border-color: var(--resource); background: rgba(255,255,255,.06); }
+.resource-tile.is-active {
+  border-color: var(--resource);
+  background: color-mix(in srgb, var(--resource) 16%, rgba(5,7,9,.58));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--resource) 42%, transparent), 0 0 12px color-mix(in srgb, var(--resource) 28%, transparent);
+}
 .resource-value { color: var(--resource); font-size: 14px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
 .resource-label { color: var(--text-dim); font-size: 9px; line-height: 1; white-space: nowrap; }
+.resource-believer.has-preview {
+  width: 100%; max-width: 126px; min-height: 55px;
+  grid-template-columns: auto 1fr; grid-template-areas: "value label" "preview preview";
+  justify-items: start; align-content: center; column-gap: 5px; padding: 5px 7px 5px 9px;
+}
+.resource-believer.has-preview .resource-value { grid-area: value; }
+.resource-believer.has-preview .resource-label { grid-area: label; color: #d9d1f2; font-size: 10px; }
+.resource-preview {
+  grid-area: preview; width: 100%; color: #bbb3d2; font-size: 9px; line-height: 1.25; text-align: left;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .resource-viewer {
   display: flex; flex-wrap: wrap; gap: 9px; justify-content: center;
   max-width: 680px; max-height: 58vh; overflow-y: auto; padding: 8px;
 }
+.resource-replay-card { box-shadow: 0 0 0 2px rgba(142,130,197,.6), 0 4px 12px var(--shadow); }
+.resource-replay-card.disabled { opacity: .35; filter: grayscale(.5); cursor: not-allowed; box-shadow: none; }
 /* 奥秘触发动画 */
 .fx-secret { position: fixed; font: 700 18px/1 "STKaiti","KaiTi",serif; color: #d8c6ff; text-shadow: 0 0 12px rgba(177,134,255,.9), 0 2px 4px #000; will-change: transform, opacity; pointer-events: none; white-space: nowrap; }
 
@@ -366,6 +384,8 @@
   .resource-tile { width: 39px; min-height: 34px; padding: 3px 2px; }
   .resource-value { font-size: 12px; }
   .resource-label { font-size: 8px; }
+  .resource-believer.has-preview { width: 100%; max-width: 100%; min-height: 47px; padding: 4px 5px 4px 8px; }
+  .resource-preview { font-size: 8px; }
   .self-panel { width: 152px; }
   .self-panel .p-portrait { width: 36px; height: 36px; }
   .self-panel .p-pchar { font-size: 22px; }

@@ -234,21 +234,26 @@ export class AIAgent {
   _randomMove(req) {
     const { engine, player } = req;
     const moves = [];
-    for (const c of player.hand) {
+    const candidates = player.hand.map((card) => ({ card, sourcePile: null }));
+    if (player.flags?.xintuReplay) {
+      (player.pile || []).forEach((card) => candidates.push({ card, sourcePile: 'xintu' }));
+    }
+    for (const { card: c, sourcePile } of candidates) {
       let opts;
       try { opts = cardPlayOptions(engine, player, c); } catch (e) { opts = []; }
+      if (sourcePile) opts = opts.filter((o) => o.card === c);
       for (const o of opts) {
         if (o.kind === 'jiedao' || o.kind === 'hengchong') continue; // 借刀/横冲需两段目标，随机时跳过
         if (o.bottledOther) continue; // 瓶装闪电·指定他人由强 AI 处理，随机时只走自己分支
         if (o.needTarget) {
           const tgts = o.kind === 'sha' ? shaTargets(engine, player, o.card) : validTargets(engine, player, o.card);
-          if (tgts.length) moves.push({ type: 'play', card: o.card, targets: [pickRandom(tgts)] });
+          if (tgts.length) moves.push({ type: 'play', card: o.card, targets: [pickRandom(tgts)], sourcePile });
         } else {
           let targets = [];
           if (['tao', 'jiu', 'wuzhong', 'shandian'].includes(o.kind)) targets = [player];
           else if (o.kind === 'taoyuan') targets = engine.alivePlayers.slice();
           else if (['wugu', 'nanman', 'wanjian'].includes(o.kind)) targets = engine.alivePlayers.filter((p) => p !== player);
-          moves.push({ type: 'play', card: o.card, targets });
+          moves.push({ type: 'play', card: o.card, targets, sourcePile });
         }
       }
     }
@@ -265,6 +270,30 @@ export class AIAgent {
     const handOf = (k) => hand.find((c) => c.kind === k && !c.frozen);
     // 按“行为别名”匹配（兼容炉石变体锦囊：behaves 别名或同 kind）
     const handOfBeh = (beh) => hand.find((c) => !c.frozen && (CARD_DEFS[c.kind]?.behaves === beh || c.kind === beh));
+
+    // 【信徒】发动后的本回合优先逐张重打武将牌上的牌；每张牌只能离开牌框一次。
+    if (player.flags?.xintuReplay) {
+      const stored = [...(player.pile || [])].sort((a, b) => cardValue(b) - cardValue(a));
+      for (const c of stored) {
+        const opts = cardPlayOptions(engine, player, c).filter((o) => o.card === c);
+        for (const o of opts) {
+          if (o.kind === 'jiedao' || o.kind === 'hengchong' || o.bottledOther) continue;
+          let targets = [];
+          if (o.needTarget) {
+            const available = o.kind === 'sha' ? shaTargets(engine, player, c) : validTargets(engine, player, c);
+            const target = available.find((t) => enemies.includes(t)) || available[0];
+            if (!target) continue;
+            targets = [target];
+          } else {
+            const def = CARD_DEFS[c.kind] || {};
+            if (def.target === 'all') targets = engine.alivePlayers.slice();
+            else if (def.target === 'all_other') targets = engine.alivePlayers.filter((p) => p !== player);
+            else if (['tao', 'jiu', 'wuzhong', 'shandian'].includes(o.kind)) targets = [player];
+          }
+          return { type: 'play', card: c, targets, sourcePile: 'xintu' };
+        }
+      }
+    }
 
     // 1) 装备空位（骨架：武器/防具栏满了仍可装第二件）
     const gujia = hasSkill(player, 'gujia');
@@ -476,7 +505,7 @@ export class AIAgent {
       const t = [...enemies].sort((a, b) => a.hp - b.hp)[0];
       if (t) return { type: 'skill', skill: 'lijian2', targetId: t.id };
     }
-    // 泽瑞拉·信徒：武将牌上攒了≥3张黑色牌时收回（限定，之后失去技能）
+    // 泽瑞拉·信徒：武将牌上攒了≥3张黑色牌时，开启本回合重打窗口。
     if (acts.some((a) => a.skill === 'xintu') && (player.pile || []).filter((c) => c.suit === 'spade' || c.suit === 'club').length >= 3) {
       return { type: 'skill', skill: 'xintu' };
     }
