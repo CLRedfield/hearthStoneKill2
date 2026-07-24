@@ -56,7 +56,7 @@ export function wuxieOptions(p) {
   return p.hand.filter((c) => (c.kind === 'wuxie' || CARD_DEFS[c.kind]?.as === 'wuxie') && !c.frozen).map((c) => ({ label: c.name, card: c }));
 }
 
-const NEED_TARGET = ['one_other', 'one_has_card', 'one_has_equip', 'one_in_1_has_card', 'jiedao'];
+const NEED_TARGET = ['one_other', 'one_any', 'one_has_card', 'one_has_equip', 'one_in_1_has_card', 'jiedao'];
 
 // 出牌阶段：某张手牌可以被“当作什么”使用（含技能转化），返回可选动作
 export function cardPlayOptions(engine, p, card) {

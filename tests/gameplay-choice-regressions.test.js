@@ -5,6 +5,7 @@ import { CARD_DEFS } from '../src/engine/cards.js';
 import { MODE, REQ, TEAM } from '../src/engine/constants.js';
 import { GameEngine } from '../src/engine/game.js';
 import { generalPool } from '../src/engine/generals.js';
+import { cardPlayOptions } from '../src/engine/responses.js';
 import { HS_SKILLS } from '../src/engine/skills-hs.js';
 
 function makeCard(id, kind, number) {
@@ -24,6 +25,18 @@ function makePlayer(id, hand = []) {
     shieldCards: [],
   };
 }
+
+test('Power Word: Shield requires choosing any living player as its target', () => {
+  const shield = makeCard('shield', 'zhenyanshudun', 2);
+  const caster = makePlayer('caster', [shield]);
+  const ally = makePlayer('ally');
+  const engine = { alivePlayers: [caster, ally] };
+
+  const options = cardPlayOptions(engine, caster, shield);
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].needTarget, true);
+});
 
 test('local free choice gives the human the full pool while AI still gets three candidates', async () => {
   const seats = [
