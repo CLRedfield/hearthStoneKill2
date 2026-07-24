@@ -155,6 +155,16 @@ export function renderRoomView(container, state, h) {
 
   // 本地专属：指定身份 + AI 难度
   if (state.isLocal) {
+    const generalChoiceRow = el('div', { class: 'rv-chips' });
+    [[false, '随机三选一'], [true, '自由选择']].forEach(([free, label]) => generalChoiceRow.appendChild(el('button', {
+      class: `chip-btn ${!!state.freeGeneralChoice === free ? 'active' : ''}`, text: label,
+      onclick: () => h.onGeneralChoice?.(free),
+    })));
+    root.appendChild(el('div', { class: 'rv-section' }, [
+      el('div', { class: 'rv-label', text: '我的选将方式' }),
+      generalChoiceRow,
+    ]));
+
     if (state.mode === MODE.ZHANGZHENG) {
       const idRow = el('div', { class: 'rv-chips' });
       IDENTITY_OPTS.forEach((o) => idRow.appendChild(el('button', {

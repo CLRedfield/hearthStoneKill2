@@ -20,6 +20,7 @@ export class Lobby {
     this.root = root; this.screen = 'home';
     this.mode = MODE.ZHANGZHENG; this.count = 5; this.name = getOrCreatePlayerName();
     this.myIdentity = null; this.myTeam = TEAM.A; this.pack = PACK.SGS;
+    this.freeGeneralChoice = false;
     this.localSeats = null; this.selectedSeat = null;
   }
 
@@ -128,11 +129,13 @@ export class Lobby {
       code: null, mode: this.mode, count: this.count, seats, spectators: [], pack: this.pack,
       isLocal: true, canEdit: true, canSwap: true, selectedSeat: this.selectedSeat,
       myIdentity: this.myIdentity, myTeam: this.myTeam,
+      freeGeneralChoice: this.freeGeneralChoice,
     };
     const h = {
       onPack: (pk) => { this.pack = pk; this.render(); },
       onMode: (m) => { this.mode = m; if (m === MODE.DUEL2V2) this.count = 4; else if (m === MODE.SOLO) this.count = 2; else if (this.count < 5) this.count = 5; this.selectedSeat = null; this._ensureLocalSeats(); this.render(); },
       onCount: (n) => { this.count = n; this.selectedSeat = null; this._ensureLocalSeats(); this.render(); },
+      onGeneralChoice: (free) => { this.freeGeneralChoice = !!free; this.render(); },
       onSeatDifficulty: (i) => { const s = this.localSeats[i]; if (s && s.kind === 'ai') s.diff = nextDiff(s.diff); this.render(); },
       onSeatClick: (i) => {
         if (this.selectedSeat == null) this.selectedSeat = i;
@@ -176,7 +179,12 @@ export class Lobby {
       seats.forEach((s, i) => { s.team = i === hIdx ? TEAM.A : TEAM.B; });
     }
 
-    const engine = new GameEngine({ mode: this.mode, seats, pack: this.pack });
+    const engine = new GameEngine({
+      mode: this.mode,
+      seats,
+      pack: this.pack,
+      freeGeneralChoice: this.freeGeneralChoice,
+    });
     const ui = new GameUI(engine, seats[hIdx].id, { rematch: { label: '再来一局', fn: () => this.startLocal() } });
     const agents = {};
     seats.forEach((s) => {

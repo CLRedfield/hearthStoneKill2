@@ -171,32 +171,44 @@ export class GameEngine {
   }
 
   async _chooseGenerals() {
-    // 主公先选（军争）。每名玩家从候选中三选一。
+    // 默认主公先选且每人三选一；本地自由选将时，真人先从完整武将池中挑选。
     const pool = shuffle(generalPool(this.config.pack || 'sgs'));
-    const order = [...this.players];
+    let order = [...this.players];
     if (this.mode === MODE.ZHANGZHENG) {
       order.sort((a, b) => (a.identity === IDENTITY.LORD ? -1 : 0) - (b.identity === IDENTITY.LORD ? -1 : 0));
     }
     const fullPool = generalPool(this.config.pack || 'sgs');
+    if (this.config.freeGeneralChoice) {
+      order = [...order.filter((p) => p.isHuman), ...order.filter((p) => !p.isHuman)];
+    }
     for (const p of order) {
-      const candidates = [];
-      while (candidates.length < 3) {
-        if (!pool.length) pool.push(...shuffle(fullPool)); // 武将不够时允许重复
-        const id = pool.shift();
-        if (!candidates.includes(id)) candidates.push(id);
-        else if (fullPool.length <= 3) { candidates.push(id); } // 池子极小，允许同候选重复
+      const freeChoice = !!this.config.freeGeneralChoice && p.isHuman;
+      let candidates = [];
+      if (freeChoice) {
+        candidates = [...new Set(pool.length ? pool : fullPool)];
+      } else {
+        while (candidates.length < 3) {
+          if (!pool.length) pool.push(...shuffle(fullPool)); // 武将不够时允许重复
+          const id = pool.shift();
+          if (!candidates.includes(id)) candidates.push(id);
+          else if (fullPool.length <= 3) { candidates.push(id); } // 池子极小，允许同候选重复
+        }
       }
       if (!candidates.length) candidates.push(fullPool[0]);
-      let chosen;
       const resp = await this.ask(p, {
         type: REQ.CHOOSE_OPTION,
-        title: '选择你的武将',
+        title: freeChoice ? '自由选择你的武将' : '选择你的武将',
         options: candidates.map((id) => ({ value: id, general: getGeneral(id) })),
         kind: 'general',
       });
-      chosen = (resp && resp.value) || candidates[0];
-      // 未选中的放回池子
-      candidates.filter((c) => c !== chosen).forEach((c) => pool.push(c));
+      const chosen = candidates.includes(resp?.value) ? resp.value : candidates[0];
+      if (freeChoice) {
+        const chosenIndex = pool.indexOf(chosen);
+        if (chosenIndex >= 0) pool.splice(chosenIndex, 1);
+      } else {
+        // 三选一候选已从池中取出，未选中的放回。
+        candidates.filter((c) => c !== chosen).forEach((c) => pool.push(c));
+      }
       this._assignGeneral(p, chosen);
     }
   }
@@ -449,9 +461,11 @@ export class GameEngine {
     if (!player.alive) return;
     await this._phaseJudge(player);
     if (this.over || !player.alive) return;
-    if (!player.flags.skipPlay && !this.skipToEnd) {
-      if (!player.flags.skipDraw) await this._phaseDraw(player);
+    if (!player.flags.skipDraw && !this.skipToEnd) {
+      await this._phaseDraw(player);
       if (this.over || !player.alive) return;
+    }
+    if (!player.flags.skipPlay && !this.skipToEnd) {
       await this._phasePlay(player);
       if (this.over || !player.alive) return;
     }
@@ -723,13 +737,20 @@ export class GameEngine {
     // 毒雾（洛欧塞布）：使用任何牌前须弃一张点数更大的牌，否则无法使用
     const poisoned = this.players.some((p) => p.alive && p.skillState?.duwuTarget === player.id);
     if (poisoned) {
-      const cost = player.hand.filter((c) => c.number > (card.number || 0)).sort((a, b) => a.number - b.number)[0];
-      if (!cost) {
+      const eligible = player.hand.filter((c) => c.number > (card.number || 0));
+      if (!eligible.length) {
         sources.forEach((c) => player.hand.push(c)); // 退回手牌，取消使用
         this.log(`${player.name} 受【毒雾】影响，无更大点数的牌可弃，无法使用【${card.name}】。`, 'bad');
         this.changed();
         return;
       }
+      const resp = await this.ask(player, {
+        type: REQ.CHOOSE_OPTION,
+        title: `毒雾：选择一张点数大于【${card.name}】的牌弃置`,
+        options: eligible.map((c) => ({ value: c.id, label: `弃【${c.name}】`, card: c })),
+      });
+      const cost = eligible.find((c) => c.id === resp?.value)
+        || eligible.sort((a, b) => a.number - b.number)[0];
       this.discardCards(player, [cost]);
       this.log(`${player.name} 因【毒雾】弃置【${cost.name}】方可使用【${card.name}】。`, 'play');
     }

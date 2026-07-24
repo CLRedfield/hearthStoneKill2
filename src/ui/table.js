@@ -961,9 +961,9 @@ export class GameUI {
         const titleMap = {
           bingfeng: '冰封：选择要冻结手牌的角色',
           xuerou: '血肉成灰：选择目标（其下回合少摸1张）',
-          liexin: '裂心：选择交换手牌的角色（回合结束换回）', xuanzhuan: '旋转：选择要观看手牌并交换一张牌的角色', hanshuang: '寒霜：选择目标（其下回合手牌上限-4）',
+          liexin: '裂心：选择交换手牌的角色（回合结束换回）', xuanzhuan: '旋转：选择要观看手牌并交换一张牌的角色', hanshuang: '寒霜：选择目标（其下回合手牌上限-2）',
           dihou: '低吼：选择目标（获取其失去的牌）', huoyan: '火眼：选择目标（弃5张【杀】造10点强制伤害）',
-          duwu: '毒雾：选择目标（其使用牌前须弃更大点数的牌）',
+          duwu: '毒雾：选择目标（其使用牌前须自行选择弃更大点数的牌）',
         };
         const tgt = await this._pickPlayer(titleMap[skill], engine.alivePlayers.filter((p) => p.id !== this.viewerId));
         if (!tgt) return;

@@ -973,12 +973,12 @@ export const HS_SKILLS = {
   // ===== 克尔苏加德（天灾）=====
   hanshuang: {
     name: '寒霜', active: true, perTurn: true,
-    desc: '出牌阶段令一名角色下个回合手牌上限-3（每回合一次）。',
+    desc: '出牌阶段令一名角色下个回合手牌上限-2（每回合一次）。',
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t) return;
       player.flags.hanshuangUsed = true;
-      t.frostHandLimit = (t.frostHandLimit || 0) + 3;
-      engine.log(`${player.name} 对 ${t.name} 发动【寒霜】，其下回合手牌上限-3。`, 'play');
+      t.frostHandLimit = (t.frostHandLimit || 0) + 2;
+      engine.log(`${player.name} 对 ${t.name} 发动【寒霜】，其下回合手牌上限-2。`, 'play');
     },
   },
 
@@ -1050,7 +1050,7 @@ export const HS_SKILLS = {
   // ===== 洛欧塞布·毒雾（天灾）=====
   duwu: {
     name: '毒雾', active: true, perTurn: true,
-    desc: '出牌阶段指定一名角色，直到你的下个回合开始，其每使用一张牌前须弃掉一张点数更大的牌，否则不能使用（每回合一次）。',
+    desc: '出牌阶段指定一名角色，直到你的下个回合开始，其每使用一张牌前须自行选择弃掉一张点数更大的牌，否则不能使用（每回合一次）。',
     async action(engine, { player, move }) {
       const t = engine.playerById(move.targetId); if (!t || t === player) return;
       player.flags.duwuUsed = true;
@@ -1062,13 +1062,22 @@ export const HS_SKILLS = {
 
   // ===== 克尔苏加德·回收/重生（天灾）=====
   huishou: {
-    name: '回收', desc: '锁定技：一名角色的回合结束时若其弃了牌，须交给你等同弃牌数量的牌。',
+    name: '回收', desc: '锁定技：一名角色的回合结束时若其弃了牌，由其选择交给你等同弃牌数量的牌。',
     triggers: {
       async anyEndPhase(engine, { owner, turnPlayer }) {
         if (!turnPlayer || turnPlayer === owner) return;
         const n = turnPlayer.flags?.lastDiscardCount || 0;
         if (n <= 0 || !turnPlayer.hand.length) return;
-        const give = turnPlayer.hand.slice(0, n);
+        const count = Math.min(n, turnPlayer.hand.length);
+        let give = await selectCards(engine, turnPlayer, turnPlayer.hand, {
+          minCount: count,
+          maxCount: count,
+          title: `回收：选择交给 ${owner.name} 的 ${count} 张牌`,
+          selectedLabel: `交给 ${owner.name} 的牌`,
+          availableLabel: '你的手牌',
+          confirmLabel: `交出 ${count} 张牌`,
+        });
+        if (give.length !== count) give = turnPlayer.hand.slice(0, count);
         give.forEach((c) => { removeFromHand(turnPlayer.hand, c); owner.hand.push(c); });
         engine.log(`${turnPlayer.name} 因【回收】交给 ${owner.name} ${give.length} 张牌。`, 'play'); engine.changed();
       },
