@@ -73,6 +73,30 @@ test('one action timeout does not poison the next remote decision', async () => 
   assert.equal(requestDocs.filter((item) => !item.data.cancelled).length, 2);
 });
 
+test('a stale presence flag does not suppress delivery to a responsive player', async () => {
+  const { hub, bus } = makeHub(() => false);
+  const pending = hub.request('friend', { type: 'play_turn' }, 100);
+  answerLatestRequest(hub, bus);
+
+  assert.deepEqual(await pending, { received: true, response: { type: 'end' } });
+});
+
+test('a request acknowledgement starts a fresh player decision timeout', async () => {
+  const { hub, bus } = makeHub();
+  const pending = hub.request('friend', { type: 'play_turn' }, 200, 0);
+  const sent = [...bus.published].reverse().find((item) => item.topic === hub.T.req('friend'));
+
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  hub.onAck({
+    ...hub.base(), reqId: sent.data.reqId, playerId: 'friend', ack: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  answerLatestRequest(hub, bus);
+
+  assert.deepEqual(await pending, { received: true, response: { type: 'end' } });
+});
+
+
 test('the host retries one pending request with the same id until it is answered', async () => {
   const { hub, bus } = makeHub();
   const pending = hub.request('friend', { type: 'play_turn' }, 200, 5);

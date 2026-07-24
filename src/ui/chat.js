@@ -76,6 +76,7 @@ export class ChatBox {
       name: (typeof value.name === 'string' ? value.name.trim() : '').slice(0, 16) || '玩家',
       text,
     };
+    this.context.onActivity?.(msg.from);
     this.msgs.push(msg);
     if (this.msgs.length > 60) this.msgs.shift();
     if (this.collapsed) { this.unread++; this._build(); }
@@ -100,6 +101,7 @@ export class ChatBox {
     const now = Date.now();
     if (!text || now - this.lastSend < 350) return;
     this.lastSend = now;
+    this.context.onActivity?.(this.me.id);
     this.bus.pub(this.T.chat, {
       v: PROTOCOL_VERSION, roomEpoch: this.context.getRoomEpoch?.(),
       from: this.me.id, name: (this.me.name || '玩家').slice(0, 16), text,

@@ -24,7 +24,8 @@ const ROOM_CODE_RE = /^[A-Z2-9]{6}$/;
 export const ONLINE_TIMEOUTS = Object.freeze({
   ready: 16_000,
   presence: 32_000,
-  action: 36_000,
+  delivery: 36_000,
+  action: 90_000,
 });
 export const ONLINE_RETRY_INTERVAL_MS = 5_000;
 
@@ -420,11 +421,30 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
   const sendPresence = () => {
     if (!isHost && room.roomEpoch && BUS.connected) BUS.pub(T.presence, { ...messageBase(), id: myId, ts: Date.now() }, { qos: 1 });
   };
+  const notePlayerActivity = (id) => {
+    if (!validPlayerId(id)) return false;
+    if (!isHost) {
+      if (id === myId) sendPresence();
+      if (id === room.hostId) lastHostHeartbeat = Date.now();
+      return false;
+    }
+    if (id === room.hostId) return false;
+    const player = room.players?.find((p) => p.id === id);
+    if (!player) return false;
+    presenceSeen.set(id, Date.now());
+    if (player.online !== false) return false;
+    player.online = true;
+    publishLobby();
+    if (!started && screen) render(room);
+    toast(`${player.name} \u5df2\u91cd\u65b0\u8fde\u63a5`);
+    return true;
+  };
   rememberSession();
 
   if (!CHAT) CHAT = new ChatBox(BUS, code, { id: myId, name: cleanName(lobby.name) }, {
     getRoomEpoch: () => room.roomEpoch,
     isMember: (id) => room.players?.some((p) => p.id === id),
+    onActivity: notePlayerActivity,
   });
 
   const publishLobby = () => {
@@ -523,7 +543,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     });
     gameCleanup.push(() => ui.destroy?.());
     const hub = new MqttHostHub(code, engine, myId, spectators.length > 0, room.gameId, room.roomEpoch,
-      (playerId) => room.players?.find((p) => p.id === playerId)?.online !== false);
+      (playerId) => room.players?.find((p) => p.id === playerId)?.online !== false, null, notePlayerActivity);
     engine.agents = {};
     for (const s of seats) {
       if (s.id === myId) engine.agents[s.id] = new HumanAgent(ui);
@@ -587,6 +607,10 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
           || typeof req.reqId !== 'string' || !req.reqId) return;
         if (req.cancelled === true) { responder.cancelRequest(req.reqId); return; }
         if (typeof req.type !== 'string') return;
+        BUS.pub(T.ack, {
+          ...messageBase(), gameId: room.gameId, reqId: req.reqId, playerId: myId, ack: true,
+        }, { qos: 1 });
+        sendPresence();
         void responder.handle(req);
       }, { qos: 1 }));
       sendReady();
@@ -693,7 +717,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
       if (msg?.v !== PROTOCOL_VERSION || msg.roomEpoch !== room.roomEpoch || !validPlayerId(msg.id)) return;
       const player = room.players.find((p) => p.id === msg.id);
       if (!player || player.id === room.hostId) return;
-      presenceSeen.set(player.id, Date.now());
+      notePlayerActivity(player.id);
       if (player.online === false) { player.online = true; publishLobby(); if (!started) render(room); toast(`${player.name} 已重新连接`); }
     }, { qos: 1 }));
     roomCleanup.push(BUS.sub(T.leave, (msg) => {
@@ -850,7 +874,7 @@ export class ClientRequestResponder {
 
 // 房主通讯枢纽
 export class MqttHostHub {
-  constructor(code, engine, hostId, hasSpectators = false, gameId = null, roomEpoch = null, isPlayerOnline = null, bus = null) {
+  constructor(code, engine, hostId, hasSpectators = false, gameId = null, roomEpoch = null, isPlayerOnline = null, bus = null, onPlayerActivity = null) {
     this.T = topics(code);
     this.engine = engine;
     this.hostId = hostId;
@@ -859,6 +883,7 @@ export class MqttHostHub {
     this.roomEpoch = roomEpoch;
     this.isPlayerOnline = isPlayerOnline || (() => true);
     this.bus = bus || BUS;
+    this.onPlayerActivity = onPlayerActivity;
     this.reqSeq = 0;
     this.stateSeq = 0;
     this.pending = new Map();
@@ -874,10 +899,12 @@ export class MqttHostHub {
     this._unsubs.push(this.engine.on('fx', (event) => this.bus.pub(this.T.fx, { ...this.base(), event }, { qos: 0 })));
     this._unsubs.push(this.engine.on('damage', (e) => this.bus.pub(this.T.fx, { ...this.base(), event: { name: 'damage', targetId: e.target.id, amount: e.amount, nature: e.nature } }, { qos: 0 })));
     this._unsubs.push(this.bus.sub(this.T.act, (doc) => this.onAction(doc)));
+    this._unsubs.push(this.bus.sub(this.T.ack, (doc) => this.onAck(doc)));
     this._unsubs.push(this.bus.sub(this.T.ready, (doc) => {
       if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== this.roomEpoch || doc.gameId !== this.gameId || !validPlayerId(doc.playerId)) return;
       if (!this.engine.players.some((p) => p.isHuman && p.id === doc.playerId)) return;
       this.readyPlayers.add(doc.playerId);
+      this.onPlayerActivity?.(doc.playerId);
     }));
     this.scheduleBroadcast();
   }
@@ -916,34 +943,51 @@ export class MqttHostHub {
     if (this.hasSpectators) this.bus.pub(this.T.spec, { ...this.base(), stateSeq, snapshot: this.engine.snapshot('__spectator__') }, { qos: 0, retain: true });
   }
   async request(playerId, serialReq, timeoutMs = ONLINE_TIMEOUTS.action, retryMs = ONLINE_RETRY_INTERVAL_MS) {
-    if (this.stopped || !this.isPlayerOnline(playerId)) return null;
+    if (this.stopped) return null;
     const reqId = `${this.gameId}:${++this.reqSeq}`;
     const d = deferred();
-    this.pending.set(reqId, { d, playerId });
+    this.pending.set(reqId, { d, playerId, acked: false, acknowledge: () => armTimer(timeoutMs) });
     const requestDoc = { ...this.base(), reqId, ...serialReq };
     const publishRequest = () => this.bus.pub(this.T.req(playerId), requestDoc, { qos: 1, retain: true });
     publishRequest();
     const retryTimer = retryMs > 0 ? setInterval(() => {
-      if (this.pending.has(reqId) && this.isPlayerOnline(playerId)) publishRequest();
+      if (this.pending.has(reqId)) publishRequest();
     }, retryMs) : null;
-    const timer = setTimeout(() => {
+    let timer = null;
+    const expire = () => {
       const pending = this.pending.get(reqId);
       if (pending) {
         this.pending.delete(reqId);
         this.bus.pub(this.T.req(playerId), { ...this.base(), reqId, cancelled: true }, { qos: 1, retain: true });
         pending.d.resolve(null);
       }
-    }, timeoutMs);
+    };
+    const armTimer = (delay) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(expire, delay);
+    };
+    armTimer(Math.min(timeoutMs, ONLINE_TIMEOUTS.delivery));
     const result = await d.promise;
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     if (retryTimer) clearInterval(retryTimer);
     await this.bus.clearRetained(this.T.req(playerId));
     return result;
+  }
+  onAck(doc) {
+    if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== this.roomEpoch || doc.gameId !== this.gameId || !validPlayerId(doc.playerId)) return;
+    const pending = this.pending.get(doc.reqId);
+    if (!pending || doc.playerId !== pending.playerId) return;
+    this.onPlayerActivity?.(doc.playerId);
+    if (!pending.acked) {
+      pending.acked = true;
+      pending.acknowledge();
+    }
   }
   onAction(doc) {
     if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== this.roomEpoch || doc.gameId !== this.gameId || !validPlayerId(doc.playerId)) return;
     const pending = this.pending.get(doc.reqId);
     if (!pending || doc.playerId !== pending.playerId) return;
+    this.onPlayerActivity?.(doc.playerId);
     this.pending.delete(doc.reqId);
     pending.d.resolve({ received: true, response: doc.response ?? null });
   }

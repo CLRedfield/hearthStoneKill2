@@ -45,6 +45,7 @@ export function topics(code) {
     presence: `${base}/presence`,     // 玩家在线心跳
     hostHeartbeat: `${base}/host`,    // 房主在线心跳
     act: `${base}/act`,               // 决策应答（玩家发布，房主订阅）
+    ack: `${base}/ack`,               // decision request acknowledgement
     fx: `${base}/fx`,                 // 动画特效广播（房主发布）
     chat: `${base}/chat`,             // 聊天 / 快捷喊话
     spec: `${base}/spec`,             // 观战者公共快照（房主发布）
