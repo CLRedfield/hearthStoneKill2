@@ -1166,6 +1166,17 @@ export class GameUI {
     if (p) p.resolve(value);
   }
 
+  cancelPending() {
+    let cancelled = false;
+    if (this.pending) {
+      this._resolve(null);
+      cancelled = true;
+    }
+    const overlays = [...document.querySelectorAll('#overlay-root .overlay-back')];
+    overlays.forEach((node) => node.remove());
+    return cancelled || overlays.length > 0;
+  }
+
   // 由 HumanAgent 调用：等待玩家给出某个决策
   await(req) {
     return new Promise((resolve) => {

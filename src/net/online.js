@@ -26,6 +26,7 @@ export const ONLINE_TIMEOUTS = Object.freeze({
   presence: 32_000,
   action: 36_000,
 });
+export const ONLINE_RETRY_INTERVAL_MS = 5_000;
 
 function loadOnlineSession() {
   try {
@@ -148,7 +149,7 @@ async function locateRoom(code, preferredBroker = null, exactBroker = false) {
       const T = topics(code);
       const [room, heartbeat] = await Promise.all([
         BUS.waitFor(T.lobby, 1600, { qos: 1 }),
-        BUS.waitFor(T.hostHeartbeat, 1600, { qos: 0 }),
+        BUS.waitFor(T.hostHeartbeat, 1600, { qos: 1 }),
       ]);
       const heartbeatAge = Date.now() - Number(heartbeat?.ts || 0);
       const hostAlive = heartbeat?.v === PROTOCOL_VERSION && heartbeat.roomEpoch === room?.roomEpoch
@@ -417,7 +418,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     if (!isHost && room.gameId) BUS.pub(T.ready, { ...messageBase(), playerId: myId, gameId: room.gameId }, { qos: 1 });
   };
   const sendPresence = () => {
-    if (!isHost && room.roomEpoch) BUS.pub(T.presence, { ...messageBase(), id: myId, ts: Date.now() }, { qos: 0 });
+    if (!isHost && room.roomEpoch && BUS.connected) BUS.pub(T.presence, { ...messageBase(), id: myId, ts: Date.now() }, { qos: 1 });
   };
   rememberSession();
 
@@ -436,7 +437,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     BUS.pub(T.lobby, room, { retain: true });
   };
   const publishHostHeartbeat = (status = 'online') => {
-    if (isHost) BUS.pub(T.hostHeartbeat, { ...messageBase(), hostId: myId, status, ts: Date.now() }, { qos: 0, retain: true });
+    if (isHost && BUS.connected) BUS.pub(T.hostHeartbeat, { ...messageBase(), hostId: myId, status, ts: Date.now() }, { qos: 1, retain: true });
   };
   const sendJoin = () => {
     rememberSession();
@@ -537,7 +538,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     const remoteIds = seats.filter((s) => s.isHuman && s.id !== myId && room.players?.find((p) => p.id === s.id)?.online !== false).map((s) => s.id);
     if (remoteIds.length) toast('等待其他玩家进入对局…', 'info', 1800);
     const missing = await hub.waitForReady(remoteIds, ONLINE_TIMEOUTS.ready);
-    if (missing.length) toast('部分玩家尚未进入，暂由 AI 接管其操作', 'error', 3000);
+    if (missing.length) toast('部分玩家尚未进入，将继续投递其操作请求', 'error', 3000);
     if (!started || room.status !== 'playing') return;
     engine.run().catch((e) => { console.error(e); toast('对局错误', 'error'); });
   };
@@ -560,27 +561,33 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
     gameCleanup.push(() => ui.destroy?.());
     toast(spectator ? '你正在观战' : '已进入对局');
     gameCleanup.push(BUS.sub(spectator ? T.spec : T.state(myId), (doc) => {
-      if (doc?.v !== PROTOCOL_VERSION || doc.gameId !== room.gameId) return;
+      if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== room.roomEpoch || doc.gameId !== room.gameId) return;
       viewEngine.updateEnvelope(doc);
     }, { qos: 0 }));
     gameCleanup.push(BUS.sub(T.fx, (doc) => {
-      if (doc?.v !== PROTOCOL_VERSION || doc.gameId !== room.gameId) return;
+      if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== room.roomEpoch || doc.gameId !== room.gameId) return;
       viewEngine.pushFx(doc.event);
     }, { qos: 0 }));
     if (!spectator) {
-      const handled = new Set();
-      gameCleanup.push(BUS.sub(T.req(myId), async (req) => {
-        if (req?.v !== PROTOCOL_VERSION || req.gameId !== room.gameId || !req.reqId || handled.has(req.reqId) || typeof req.type !== 'string') return;
-        handled.add(req.reqId);
-        if (handled.size > 240) handled.delete(handled.values().next().value);
-        const localReq = hydrateReq(viewEngine, myId, req);
-        try {
-          const resp = await human.respond(localReq);
-          BUS.pub(T.act, { ...messageBase(), gameId: room.gameId, reqId: req.reqId, playerId: myId, response: serializeResponse(req.type, resp) }, { qos: 1 });
-        } catch (e) {
-          console.error('client respond', e);
-          BUS.pub(T.act, { ...messageBase(), gameId: room.gameId, reqId: req.reqId, playerId: myId, response: null }, { qos: 1 });
-        }
+      const responder = new ClientRequestResponder({
+        human,
+        hydrate: (req) => hydrateReq(viewEngine, myId, req),
+        serialize: (type, resp) => serializeResponse(type, resp),
+        publish: (req, response) => BUS.pub(T.act, {
+          ...messageBase(), gameId: room.gameId, reqId: req.reqId, playerId: myId, response,
+        }, { qos: 1 }),
+        onError: (e) => console.error('client respond', e),
+        cancel: () => {
+          if (ui.cancelPending()) toast('本次操作响应超时，已由 AI 处理', 'error', 2600);
+        },
+      });
+      gameCleanup.push(() => responder.stop());
+      gameCleanup.push(BUS.sub(T.req(myId), (req) => {
+        if (req?.v !== PROTOCOL_VERSION || req.roomEpoch !== room.roomEpoch || req.gameId !== room.gameId
+          || typeof req.reqId !== 'string' || !req.reqId) return;
+        if (req.cancelled === true) { responder.cancelRequest(req.reqId); return; }
+        if (typeof req.type !== 'string') return;
+        void responder.handle(req);
       }, { qos: 1 }));
       sendReady();
     }
@@ -688,7 +695,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
       if (!player || player.id === room.hostId) return;
       presenceSeen.set(player.id, Date.now());
       if (player.online === false) { player.online = true; publishLobby(); if (!started) render(room); toast(`${player.name} 已重新连接`); }
-    }, { qos: 0 }));
+    }, { qos: 1 }));
     roomCleanup.push(BUS.sub(T.leave, (msg) => {
       if (msg?.v !== PROTOCOL_VERSION || msg.roomEpoch !== room.roomEpoch || !validPlayerId(msg.id) || msg.id === room.hostId) return;
       const index = room.players.findIndex((p) => p.id === msg.id);
@@ -724,7 +731,7 @@ function enterRoom(lobby, code, myId, isHost, cfg, initialRoom = null) {
       if (doc.status === 'closed') return;
       lastHostHeartbeat = Date.now();
       if (BUS.connected && netStatus === 'host-offline') { netStatus = 'connect'; CHAT?.setStatus('connect'); if (!started && screen) render(room); }
-    }, { qos: 0 }));
+    }, { qos: 1 }));
     roomCleanup.push(BUS.sub(T.lobby, (r) => {
       if (!validRoomDoc(r, code) || (room.roomEpoch && r.roomEpoch !== room.roomEpoch)) return;
       if (Number.isInteger(r.revision) && r.revision < lastRoomRevision) return;
@@ -782,9 +789,68 @@ function mountHostGame(root, engine, hostId, opts) {
   return ui;
 }
 
+export class ClientRequestResponder {
+  constructor({ human, hydrate, serialize, publish, cancel = null, onError = null, maxResponses = 240 }) {
+    this.human = human;
+    this.hydrate = hydrate;
+    this.serialize = serialize;
+    this.publish = publish;
+    this.cancel = cancel;
+    this.onError = onError;
+    this.maxResponses = maxResponses;
+    this.inFlight = new Set();
+    this.cancelResolvers = new Map();
+    this.responses = new Map();
+    this.stopped = false;
+  }
+  cancelRequest(reqId) {
+    this.responses.delete(reqId);
+    const resolveCancel = this.cancelResolvers.get(reqId);
+    if (resolveCancel) { resolveCancel(); this.cancel?.(reqId); }
+  }
+  stop() {
+    this.stopped = true;
+    for (const resolveCancel of this.cancelResolvers.values()) resolveCancel();
+    this.cancelResolvers.clear();
+    this.inFlight.clear();
+    this.responses.clear();
+  }
+  async handle(req) {
+    if (this.stopped) return;
+    if (this.responses.has(req.reqId)) {
+      this.publish(req, this.responses.get(req.reqId));
+      return;
+    }
+    if (this.inFlight.has(req.reqId)) return;
+    this.inFlight.add(req.reqId);
+    let resolveCancel;
+    const cancelled = new Promise((resolve) => {
+      resolveCancel = () => resolve({ cancelled: true });
+    });
+    this.cancelResolvers.set(req.reqId, resolveCancel);
+    let response = null;
+    try {
+      const outcome = await Promise.race([
+        Promise.resolve(this.human.respond(this.hydrate(req))).then((value) => ({ cancelled: false, value })),
+        cancelled,
+      ]);
+      if (!outcome.cancelled) response = this.serialize(req.type, outcome.value);
+    } catch (e) {
+      this.onError?.(e);
+    } finally {
+      this.inFlight.delete(req.reqId);
+      this.cancelResolvers.delete(req.reqId);
+    }
+    if (this.stopped) return;
+    this.responses.set(req.reqId, response);
+    while (this.responses.size > this.maxResponses) this.responses.delete(this.responses.keys().next().value);
+    this.publish(req, response);
+  }
+}
+
 // 房主通讯枢纽
-class MqttHostHub {
-  constructor(code, engine, hostId, hasSpectators = false, gameId = null, roomEpoch = null, isPlayerOnline = null) {
+export class MqttHostHub {
+  constructor(code, engine, hostId, hasSpectators = false, gameId = null, roomEpoch = null, isPlayerOnline = null, bus = null) {
     this.T = topics(code);
     this.engine = engine;
     this.hostId = hostId;
@@ -792,11 +858,11 @@ class MqttHostHub {
     this.gameId = gameId;
     this.roomEpoch = roomEpoch;
     this.isPlayerOnline = isPlayerOnline || (() => true);
+    this.bus = bus || BUS;
     this.reqSeq = 0;
     this.stateSeq = 0;
     this.pending = new Map();
     this.readyPlayers = new Set();
-    this.failedPlayers = new Set();
     this._timer = null;
     this._dirty = false;
     this._unsubs = [];
@@ -805,14 +871,13 @@ class MqttHostHub {
   base() { return { v: PROTOCOL_VERSION, roomEpoch: this.roomEpoch, gameId: this.gameId }; }
   start() {
     this._unsubs.push(this.engine.on('change', () => this.scheduleBroadcast()));
-    this._unsubs.push(this.engine.on('fx', (event) => BUS.pub(this.T.fx, { ...this.base(), event }, { qos: 0 })));
-    this._unsubs.push(this.engine.on('damage', (e) => BUS.pub(this.T.fx, { ...this.base(), event: { name: 'damage', targetId: e.target.id, amount: e.amount, nature: e.nature } }, { qos: 0 })));
-    this._unsubs.push(BUS.sub(this.T.act, (doc) => this.onAction(doc)));
-    this._unsubs.push(BUS.sub(this.T.ready, (doc) => {
+    this._unsubs.push(this.engine.on('fx', (event) => this.bus.pub(this.T.fx, { ...this.base(), event }, { qos: 0 })));
+    this._unsubs.push(this.engine.on('damage', (e) => this.bus.pub(this.T.fx, { ...this.base(), event: { name: 'damage', targetId: e.target.id, amount: e.amount, nature: e.nature } }, { qos: 0 })));
+    this._unsubs.push(this.bus.sub(this.T.act, (doc) => this.onAction(doc)));
+    this._unsubs.push(this.bus.sub(this.T.ready, (doc) => {
       if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== this.roomEpoch || doc.gameId !== this.gameId || !validPlayerId(doc.playerId)) return;
       if (!this.engine.players.some((p) => p.isHuman && p.id === doc.playerId)) return;
       this.readyPlayers.add(doc.playerId);
-      this.failedPlayers.delete(doc.playerId);
     }));
     this.scheduleBroadcast();
   }
@@ -821,7 +886,7 @@ class MqttHostHub {
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
     this._unsubs.forEach((fn) => { try { fn(); } catch (e) {} });
     this._unsubs = [];
-    for (const pending of this.pending.values()) { BUS.clearRetained(this.T.req(pending.playerId)); pending.d.resolve(null); }
+    for (const pending of this.pending.values()) { this.bus.clearRetained(this.T.req(pending.playerId)); pending.d.resolve(null); }
     this.pending.clear();
   }
   async waitForReady(playerIds, timeoutMs = ONLINE_TIMEOUTS.ready) {
@@ -831,7 +896,6 @@ class MqttHostHub {
       await new Promise((resolve) => setTimeout(resolve, 100));
       missing = playerIds.filter((id) => !this.readyPlayers.has(id));
     }
-    missing.forEach((id) => this.failedPlayers.add(id));
     return missing;
   }
   scheduleBroadcast() {
@@ -846,33 +910,38 @@ class MqttHostHub {
     const stateSeq = ++this.stateSeq;
     for (const p of this.engine.players) {
       if (p.isHuman && p.id !== this.hostId) {
-        BUS.pub(this.T.state(p.id), { ...this.base(), stateSeq, snapshot: this.engine.snapshot(p.id) }, { qos: 0, retain: true });
+        this.bus.pub(this.T.state(p.id), { ...this.base(), stateSeq, snapshot: this.engine.snapshot(p.id) }, { qos: 0, retain: true });
       }
     }
-    if (this.hasSpectators) BUS.pub(this.T.spec, { ...this.base(), stateSeq, snapshot: this.engine.snapshot('__spectator__') }, { qos: 0, retain: true });
+    if (this.hasSpectators) this.bus.pub(this.T.spec, { ...this.base(), stateSeq, snapshot: this.engine.snapshot('__spectator__') }, { qos: 0, retain: true });
   }
-  async request(playerId, serialReq) {
-    if (this.stopped || this.failedPlayers.has(playerId) || !this.isPlayerOnline(playerId)) return null;
+  async request(playerId, serialReq, timeoutMs = ONLINE_TIMEOUTS.action, retryMs = ONLINE_RETRY_INTERVAL_MS) {
+    if (this.stopped || !this.isPlayerOnline(playerId)) return null;
     const reqId = `${this.gameId}:${++this.reqSeq}`;
     const d = deferred();
     this.pending.set(reqId, { d, playerId });
-    BUS.pub(this.T.req(playerId), { ...this.base(), reqId, ...serialReq }, { qos: 1, retain: true });
+    const requestDoc = { ...this.base(), reqId, ...serialReq };
+    const publishRequest = () => this.bus.pub(this.T.req(playerId), requestDoc, { qos: 1, retain: true });
+    publishRequest();
+    const retryTimer = retryMs > 0 ? setInterval(() => {
+      if (this.pending.has(reqId) && this.isPlayerOnline(playerId)) publishRequest();
+    }, retryMs) : null;
     const timer = setTimeout(() => {
       const pending = this.pending.get(reqId);
       if (pending) {
         this.pending.delete(reqId);
-        this.failedPlayers.add(playerId);
+        this.bus.pub(this.T.req(playerId), { ...this.base(), reqId, cancelled: true }, { qos: 1, retain: true });
         pending.d.resolve(null);
       }
-    }, ONLINE_TIMEOUTS.action);
+    }, timeoutMs);
     const result = await d.promise;
     clearTimeout(timer);
-    await BUS.clearRetained(this.T.req(playerId));
+    if (retryTimer) clearInterval(retryTimer);
+    await this.bus.clearRetained(this.T.req(playerId));
     return result;
   }
   onAction(doc) {
     if (doc?.v !== PROTOCOL_VERSION || doc.roomEpoch !== this.roomEpoch || doc.gameId !== this.gameId || !validPlayerId(doc.playerId)) return;
-    this.failedPlayers.delete(doc.playerId);
     const pending = this.pending.get(doc.reqId);
     if (!pending || doc.playerId !== pending.playerId) return;
     this.pending.delete(doc.reqId);
