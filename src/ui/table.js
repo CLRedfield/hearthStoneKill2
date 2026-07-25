@@ -475,6 +475,9 @@ export class GameUI {
   _cardFace(card, { mini = false, clickable = false, dim = false, selected = false, onClick } = {}) {
     const def = CARD_DEFS[card.kind] || {};
     const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[def.type] || '';
+    const basicRole = def.type === 'basic'
+      ? ({ sha: '\u6740', shan: '\u95ea', tao: '\u6843', jiu: '\u9152' }[def.as || card.as || card.kind] || '')
+      : '';
     const node = el('div', {
       class: `card-face type-${def.type || 'basic'} ${card.red ? 'red' : 'black'} ${mini ? 'mini' : ''} ${dim ? 'dim' : ''} ${selected ? 'sel' : ''} ${clickable ? 'clickable' : ''} ${card.frozen ? 'frozen' : ''}`,
     }, [
@@ -482,6 +485,7 @@ export class GameUI {
         el('span', { class: 'cf-rank', text: rankLabel(card.number) }),
         el('span', { class: 'cf-suit', text: SUIT_SYMBOL[card.suit] || '' }),
       ]),
+      basicRole ? el('div', { class: 'cf-basic-role', text: basicRole }) : null,
       el('div', { class: 'cf-name', text: card.name }),
       el('div', { class: 'cf-type', text: typeLabel }),
       card.frozen ? el('div', { class: 'cf-frozen', text: '❄' }) : null,

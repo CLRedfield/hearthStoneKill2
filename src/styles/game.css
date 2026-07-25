@@ -132,11 +132,11 @@
 
 /* 卡牌 */
 .card-face {
-  position: relative; width: 64px; height: 90px; border-radius: 8px;
+  position: relative; width: 74px; height: 104px; border-radius: 9px;
   background: linear-gradient(170deg, var(--parch), var(--parch-2));
   color: #2a2016; border: 1px solid #b69a5e; flex: 0 0 auto;
   box-shadow: 0 4px 10px var(--shadow); transition: transform .14s ease, box-shadow .14s;
-  display: flex; flex-direction: column; padding: 5px 6px; overflow: hidden;
+  display: flex; flex-direction: column; padding: 7px 7px 6px; overflow: hidden;
 }
 .card-face.red { color: var(--red); }
 .card-face.black { color: #20242b; }
@@ -144,13 +144,24 @@
 .card-face.type-trick::before { background: #8a5bba; }
 .card-face.type-delayed::before { background: #d08a3a; }
 .card-face.type-equip::before { background: #2e8b57; }
-.cf-top { display: flex; flex-direction: column; line-height: 1; font-weight: 700; }
-.cf-rank { font-size: 16px; } .cf-suit { font-size: 14px; }
-.cf-name { margin: auto 0; text-align: center; font-size: 18px; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; }
+.cf-top { display: flex; flex: 0 0 auto; flex-direction: column; line-height: 1; font-weight: 700; }
+.cf-rank { font-size: 17px; } .cf-suit { font-size: 15px; }
+.cf-name { margin: auto 0; text-align: center; font-size: 19px; line-height: 1.08; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; overflow-wrap: anywhere; }
 .card-face.red .cf-name { color: #8e201b; }
-.cf-type { font-size: 10px; text-align: center; color: #6a5a3a; }
-.card-face.mini { width: 44px; height: 62px; padding: 3px 4px; }
-.card-face.mini .cf-name { font-size: 13px; } .card-face.mini .cf-rank { font-size: 12px; }
+.cf-type { flex: 0 0 auto; min-height: 13px; font-size: 11px; line-height: 13px; text-align: center; color: #6a5a3a; white-space: nowrap; }
+.cf-basic-role {
+  position: absolute; top: 8px; right: 7px; z-index: 1;
+  min-width: 22px; height: 22px; display: grid; place-items: center;
+  border: 1px solid currentColor; border-radius: 50%;
+  font: 800 14px/1 "STKaiti","KaiTi",serif;
+  background: rgba(255,250,240,.72); box-shadow: 0 1px 3px rgba(70,45,20,.14);
+}
+.card-face.mini { width: 50px; height: 70px; padding: 4px; }
+.card-face.mini .cf-name { font-size: 14px; }
+.card-face.mini .cf-rank { font-size: 12px; }
+.card-face.mini .cf-suit { font-size: 11px; }
+.card-face.mini .cf-type { min-height: 9px; font-size: 8px; line-height: 9px; }
+.card-face.mini .cf-basic-role { top: 5px; right: 4px; min-width: 17px; height: 17px; font-size: 11px; }
 .card-face.clickable { cursor: pointer; }
 .card-face.clickable:hover { transform: translateY(-10px); box-shadow: 0 14px 24px var(--shadow); z-index: 5; }
 .card-face.sel { transform: translateY(-14px); box-shadow: 0 0 0 2px var(--gold-bright), 0 16px 26px var(--shadow); z-index: 6; }
@@ -172,7 +183,10 @@
 .ab-banner { min-height: 22px; }
 .ab-title { color: var(--gold-bright); font-size: 15px; letter-spacing: 1px; }
 .ab-wait { color: var(--text-dim); font-size: 14px; }
-.hand-row { display: flex; gap: 8px; justify-content: center; align-items: flex-end; min-height: 94px; padding: 0 10px; flex-wrap: wrap; max-width: 96vw; }
+.hand-row { display: flex; gap: 9px; justify-content: center; align-items: flex-end; min-height: 120px; padding: 0 10px; flex-wrap: wrap; max-width: 96vw; }
+.hand-row .card-face { width: 82px; height: 114px; padding: 7px 8px 6px; }
+.hand-row .cf-name { font-size: 20px; }
+.hand-row .cf-basic-role { min-width: 24px; height: 24px; font-size: 15px; }
 .hand-empty { color: var(--text-dim); align-self: center; }
 .ab-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; min-height: 36px; align-items: center; }
 .ab-hint, .ab-controls .ab-hint { color: var(--text-dim); font-size: 13px; }
@@ -233,12 +247,14 @@
 .mp-name { color: var(--text); font-weight: 700; }
 .mp-meta { color: var(--text-dim); font-size: 11px; }
 .swap-cards-body .gx-card.selected { animation: none; }
-.mini-card { position: relative; width: 52px; height: 72px; border-radius: 7px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e; color: #2a2016; cursor: pointer; padding: 4px; box-shadow: 0 3px 8px var(--shadow); transition: transform .12s; }
+.mini-card { position: relative; width: 62px; height: 86px; border-radius: 8px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e; color: #2a2016; cursor: pointer; padding: 5px; box-shadow: 0 3px 8px var(--shadow); transition: transform .12s; display: flex; flex-direction: column; overflow: hidden; }
 .mini-card:hover { transform: translateY(-5px); }
 .mini-card.red { color: var(--red); }
-.mc-corner { font-size: 12px; font-weight: 700; }
-.mc-name { text-align: center; font-size: 15px; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; margin-top: 6px; }
+.mc-corner { font-size: 13px; line-height: 1; font-weight: 700; }
+.mc-basic-role { position: absolute; top: 5px; right: 5px; width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; background: rgba(255,250,240,.72); font: 800 12px/1 "STKaiti","KaiTi",serif; }
+.mc-name { margin: auto 0; text-align: center; font-size: 16px; line-height: 1.08; font-weight: 800; font-family: "STKaiti","KaiTi",serif; color: #1c140c; overflow-wrap: anywhere; }
 .mini-card.red .mc-name { color: #8e201b; }
+.mc-type { flex: 0 0 auto; min-height: 10px; color: #6a5a3a; font-size: 9px; line-height: 10px; text-align: center; white-space: nowrap; }
 .cc-zone { position: absolute; bottom: 2px; right: 3px; font-size: 9px; color: #6a5a3a; }
 
 /* 结算 */
@@ -397,11 +413,14 @@
   .gx-zones { grid-template-columns: 1fr; }
   .gx-zone { min-height: 108px; max-height: 25vh; padding: 9px; }
   .gx-hint { font-size: 11px; }
-  .card-face { width: 50px; height: 70px; padding: 3px 4px; }
-  .cf-name { font-size: 14px; } .cf-rank { font-size: 13px; } .cf-suit { font-size: 11px; } .cf-type { font-size: 8px; }
+  .card-face { width: 60px; height: 84px; padding: 5px; }
+  .cf-name { font-size: 16px; } .cf-rank { font-size: 14px; } .cf-suit { font-size: 12px; } .cf-type { min-height: 10px; font-size: 9px; line-height: 10px; }
+  .cf-basic-role { top: 6px; right: 5px; min-width: 19px; height: 19px; font-size: 12px; }
   /* 手牌横向滚动，避免竖屏堆叠占满屏幕 */
-  .hand-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; min-height: 76px; padding: 0 4px 4px; -webkit-overflow-scrolling: touch; max-width: 100vw; }
-  .hand-row .card-face { flex: 0 0 auto; touch-action: manipulation; }
+  .hand-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; min-height: 96px; padding: 0 4px 4px; -webkit-overflow-scrolling: touch; max-width: 100vw; }
+  .hand-row .card-face { width: 66px; height: 92px; padding: 5px 6px; flex: 0 0 auto; touch-action: manipulation; }
+  .hand-row .cf-name { font-size: 17px; }
+  .hand-row .cf-basic-role { min-width: 20px; height: 20px; font-size: 13px; }
   .hand-row { scrollbar-width: none; }
   .hand-row::-webkit-scrollbar, .ab-controls::-webkit-scrollbar { display: none; }
   .action-bar { position: relative; z-index: 25; padding: 6px 0 max(10px, env(safe-area-inset-bottom, 0px)); gap: 5px; background: linear-gradient(0deg, var(--ink-2) 68%, transparent); }
@@ -425,6 +444,9 @@
   .opp-grid { padding: 4px 2px 2px; }
   .table-center { min-height: 48px; padding: 2px 0; }
   .deck-pile, .discard-empty { height: 58px; width: 44px; }
-  .hand-row { min-height: 64px; }
+  .hand-row { min-height: 76px; }
+  .hand-row .card-face { width: 54px; height: 74px; padding: 4px; }
+  .hand-row .cf-name { font-size: 14px; }
+  .hand-row .cf-basic-role { min-width: 17px; height: 17px; font-size: 11px; }
   .log-panel { display: none; }
 }

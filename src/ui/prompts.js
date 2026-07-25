@@ -106,11 +106,16 @@ export function chooseGeneralDialog(generals) {
 export function miniCardNode(card, onClick) {
   const red = card.red;
   const def = CARD_DEFS[card.kind] || {};
+  const basicRole = def.type === 'basic'
+    ? ({ sha: '\u6740', shan: '\u95ea', tao: '\u6843', jiu: '\u9152' }[def.as || card.as || card.kind] || '')
+    : '';
   const node = el('div', {
     class: `mini-card ${red ? 'red' : 'black'}`,
   }, [
     el('div', { class: 'mc-corner', text: `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}` }),
+    basicRole ? el('div', { class: 'mc-basic-role', text: basicRole }) : null,
     el('div', { class: 'mc-name', text: card.name }),
+    el('div', { class: 'mc-type', text: ({ equip: '\u88c5\u5907', trick: '\u9526\u56ca', delayed: '\u5ef6\u65f6', basic: '\u57fa\u672c', secret: '\u5965\u79d8' }[def.type] || '') }),
   ]);
   // 单击/悬停显示精美介绍（移动端无需长按）
   const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[def.type] || '';
