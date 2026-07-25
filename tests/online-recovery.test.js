@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { MODE, TEAM } from '../src/engine/constants.js';
+import { GameEngine } from '../src/engine/game.js';
 import { ClientRequestResponder, MqttHostHub } from '../src/net/online.js';
 
 class FakeBus {
@@ -126,6 +128,36 @@ test('the host publishes a reliable current snapshot before each decision reques
   assert.deepEqual(await pending, { received: true, response: { type: 'end' } });
 });
 
+test('building players invalidates an empty pre-game snapshot before online general choice', async () => {
+  const bus = new FakeBus();
+  const engine = new GameEngine({
+    mode: MODE.SOLO,
+    seats: [
+      { id: 'host', name: '房主', isHuman: true, team: TEAM.A },
+      { id: 'friend', name: '玩家', isHuman: true, team: TEAM.B },
+    ],
+    pack: 'sgs',
+    pace: 0,
+  });
+  const hub = new MqttHostHub('ABCDEF', engine, 'host', false, 'game-1', 'epoch-1', null, bus);
+  hub.start();
+
+  // Waiting for clients may already have published an initial snapshot with no players.
+  hub.flushBroadcast(1);
+  bus.published.length = 0;
+
+  engine._buildPlayers();
+  const pending = hub.request('friend', { type: 'choose_option', kind: 'general' }, 100, 0);
+  answerLatestRequest(hub, bus, { value: 'caocao' });
+  await pending;
+  hub.stop();
+
+  const stateIndex = bus.published.findIndex((item) => item.topic === hub.T.state('friend'));
+  const requestIndex = bus.published.findIndex((item) => item.topic === hub.T.req('friend'));
+  assert.ok(stateIndex >= 0 && stateIndex < requestIndex, 'initialized players must be published before general choice');
+  assert.equal(bus.published[requestIndex].data.requiredStateSeq, bus.published[stateIndex].data.stateSeq);
+  assert.deepEqual(bus.published[stateIndex].data.snapshot.players.map((p) => p.id), ['host', 'friend']);
+});
 test('the client waits for the request snapshot before opening the interaction', async () => {
   let releaseState;
   let respondCount = 0;

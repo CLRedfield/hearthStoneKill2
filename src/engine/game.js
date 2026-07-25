@@ -171,6 +171,8 @@ export class GameEngine {
         skillState: {},       // 技能持久状态（每回合一次等）
       };
     });
+    // 玩家列表初始化是需要同步的状态；让联机端在选将请求前收到当前快照。
+    this.changed();
   }
 
   async _chooseGenerals() {
