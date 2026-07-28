@@ -57,7 +57,13 @@ export class GameEngine {
         options: req.options.map((o) => {
           if (!o || o.player || typeof o.value !== 'string') return o;
           const pl = this.playerById(o.value);
-          return pl ? { ...o, player: { name: pl.name, general: pl.general?.name || '', hp: pl.hp, maxHp: pl.maxHp, faction: pl.faction } } : o;
+          return pl ? {
+            ...o,
+            player: {
+              name: pl.name, general: pl.general?.name || '', hp: pl.hp, maxHp: pl.maxHp,
+              faction: pl.faction, team: pl.team,
+            },
+          } : o;
         }),
       };
     }
@@ -260,9 +266,24 @@ export class GameEngine {
     }
   }
 
-  drawCards(player, n, silent = false) {
+  _consumeOverload(player, n) {
+    const requested = Math.max(0, Math.trunc(Number(n) || 0));
+    const overload = Math.max(0, Math.trunc(Number(player.overload) || 0));
+    if (!requested || !overload) return requested;
+
+    const consumed = Math.min(overload, requested);
+    player.overload = overload - consumed;
+    const remaining = player.overload > 0 ? `，剩余过载 ${player.overload}` : '，过载已耗尽';
+    this.log(`${player.name} 的过载抵消 ${consumed} 张摸牌${remaining}。`, 'bad');
+    return requested - consumed;
+  }
+
+  drawCards(player, n, silent = false, overloadChecked = false) {
+    const drawCount = overloadChecked
+      ? Math.max(0, Math.trunc(Number(n) || 0))
+      : this._consumeOverload(player, n);
     const got = [];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < drawCount; i++) {
       this._refillDeck();
       if (!this.deck.length) break;
       const c = this.deck.shift();
@@ -385,6 +406,10 @@ export class GameEngine {
         cards = cards.filter((c) => !shas.includes(c));
         if (!cards.length) { this.changed(); return; }
       }
+    }
+    const revealedSecrets = cards.filter((c) => (player.secrets || []).includes(c));
+    if (revealedSecrets.length) {
+      this.log(`${player.name} 的奥秘${revealedSecrets.map((c) => `【${c.name}】`).join('、')}被弃置。`, 'play');
     }
     // 低吼（奈法利安）：该角色失去并将进入弃牌堆的牌改为由低吼者获得
     const hunter = this.players.find((p) => p.alive && p !== player && p.skillState?.dihouTarget === player.id);
@@ -754,21 +779,17 @@ export class GameEngine {
     // 英姿 / 灌魔 等
     const extra = await triggerSkill(this, 'drawCount', { player, base: n });
     if (typeof extra === 'number') n = extra;
-    // 过载：上一回合累计的过载减少本回合摸牌
-    if (player.overload) {
-      const ov = player.overload; player.overload = 0;
-      n = Math.max(0, n - ov);
-      this.log(`${player.name} 过载，少摸 ${ov} 张。`, 'bad');
-    }
     // 血肉成灰：摸牌惩罚
     if (player.drawPenalty) {
       const dp = player.drawPenalty; player.drawPenalty = 0;
       n = Math.max(0, n - dp);
       this.log(`${player.name} 受【血肉成灰】影响，少摸 ${dp} 张。`, 'bad');
     }
+    // 过载在每次摸牌前抵扣；此处先计算，以便“发现”等技能拿到最终摸牌数。
+    n = this._consumeOverload(player, n);
     // 苔丝·发现等技能必须先根据最终摸牌数整理牌堆，再实际摸牌。
     await triggerSkill(this, 'beforeDraw', { player, count: n });
-    this.drawCards(player, n);
+    this.drawCards(player, n, false, true);
     await this.pause();
   }
 

@@ -107,6 +107,90 @@ test('Poison Fog lets the affected player choose the higher-numbered discard', a
   assert.equal(engine.discard.includes(chosenCost), true);
 });
 
+test('player choice prompts preserve the public team label', async () => {
+  const chooser = makePlayer('chooser');
+  const target = makePlayer('target');
+  target.team = TEAM.B;
+  target.general = { name: '目标武将' };
+  const engine = new GameEngine({ mode: MODE.DUEL2V2, pack: 'hs', pace: 0 });
+  engine.players = [chooser, target];
+  let received;
+  engine.agents = {
+    chooser: {
+      kind: 'human',
+      respond(req) { received = req; return { value: target.id }; },
+    },
+  };
+
+  await engine.ask(chooser, {
+    type: REQ.CHOOSE_OPTION,
+    title: '选择角色',
+    options: [{ value: target.id, label: target.name }],
+  });
+
+  assert.equal(received.options[0].player.team, TEAM.B);
+  assert.equal(received.options[0].player.general, '目标武将');
+});
+
+test('Arcane lets a human choose which enemy has a hand card revealed', async () => {
+  const owner = makePlayer('antonidas');
+  const first = makePlayer('first', [makeCard('first-card', 'sha', 3)]);
+  const chosen = makePlayer('chosen', [makeCard('chosen-card', 'shan', 7)]);
+  first.team = TEAM.B;
+  chosen.team = TEAM.B;
+  const requests = [];
+  const engine = {
+    alivePlayers: [owner, first, chosen],
+    agentOf() { return { kind: 'human' }; },
+    isAlly(a, b) { return a.team === b.team; },
+    async ask(_player, req) {
+      requests.push(req);
+      return { value: requests.length === 1 ? 'mark' : chosen.id };
+    },
+    playerById(id) { return this.alivePlayers.find((p) => p.id === id); },
+    log() {}, changed() {},
+  };
+
+  await HS_SKILLS.ao.triggers.cardTwice(engine, { player: owner });
+
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].title, /选择要明置手牌的角色/);
+  assert.equal(first.hand[0].aoMark, undefined);
+  assert.equal(chosen.hand[0].aoMark, owner.id);
+});
+
+test('replaying a targeted card lets a human choose the new target', async () => {
+  const owner = makePlayer('owner');
+  const first = makePlayer('first');
+  const chosen = makePlayer('chosen');
+  first.team = TEAM.B;
+  chosen.team = TEAM.B;
+  owner.skillState.xiehuoCount = 2;
+  const used = makeCard('used', 'sha', 9);
+  const engine = new GameEngine({ mode: MODE.DUEL2V2, pack: 'hs', pace: 0 });
+  engine.players = [owner, first, chosen];
+  engine.turnOwner = owner;
+  engine.pause = async () => {};
+  engine.drawCards = () => [];
+  let targetRequest;
+  engine.agents = {
+    owner: {
+      kind: 'human',
+      respond(req) {
+        if (req.title?.startsWith('再次使用')) targetRequest = req;
+        return { value: chosen.id };
+      },
+    },
+  };
+
+  await HS_SKILLS.xiehuo2.triggers.usedCard(engine, { player: owner, card: used });
+
+  assert.equal(targetRequest.type, REQ.CHOOSE_OPTION);
+  assert.deepEqual(targetRequest.options.map((o) => o.value).sort(), [chosen.id, first.id].sort());
+  assert.equal(first.hp, 4);
+  assert.equal(chosen.hp, 3);
+});
+
 test('Recycle lets the turn player choose exactly which cards to give', async () => {
   const cards = [
     makeCard('keep', 'sha', 2),

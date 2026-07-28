@@ -129,6 +129,9 @@ body {
 .choose-player .cp-info { display: flex; gap: 8px; font-size: 12px; line-height: 1; opacity: .92; }
 .choose-player .cp-general { color: var(--fac, var(--gold)); }
 .choose-player .cp-hp { color: var(--red, #e05648); }
+.choose-player .cp-team { padding: 1px 6px; border-radius: 7px; color: #fff; font-size: 10px; font-weight: 750; line-height: 13px; }
+.choose-player .cp-team.team-A { background: #2e6fb0; }
+.choose-player .cp-team.team-B { background: #b8312a; }
 /* 选牌选项：花色点数 + 牌名 */
 .choose-cardopt { display: flex; align-items: center; gap: 7px; }
 .choose-cardopt .cc-corner { font-weight: 700; }

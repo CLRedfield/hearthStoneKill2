@@ -116,8 +116,8 @@ test('旋转在双栏界面中同时选择获得和交出的牌', async () => {
 });
 
 test('元素之力用一次多选请求选择至多两名伤害目标', async () => {
-  const player = { id: 'brukan', name: '布鲁坎', alive: true, hand: [], equips: {}, hp: 4, maxHp: 4 };
-  const targets = ['a', 'b', 'c'].map((id) => ({ id, name: id, alive: true, hand: [], equips: {}, hp: 3, maxHp: 4 }));
+  const player = { id: 'brukan', name: '布鲁坎', alive: true, hand: [], equips: {}, hp: 4, maxHp: 4, team: 'A' };
+  const targets = ['a', 'b', 'c'].map((id) => ({ id, name: id, alive: true, hand: [], equips: {}, hp: 3, maxHp: 4, team: 'B' }));
   let request;
   const damaged = [];
   const engine = {
@@ -135,7 +135,53 @@ test('元素之力用一次多选请求选择至多两名伤害目标', async ()
 
   assert.equal(request.type, REQ.SELECT_PLAYERS);
   assert.equal(request.maxCount, 2);
+  assert.deepEqual(request.players.map((p) => p.team), ['B', 'B', 'B']);
   assert.deepEqual(damaged.map((x) => x.target.id), ['a', 'b']);
+});
+
+test('元素之力的方片效果由布鲁坎逐张选择要弃置的牌', async () => {
+  const player = { id: 'brukan', name: '布鲁坎', alive: true, hand: [], equips: {}, hp: 4, maxHp: 4, team: 'A' };
+  const keep = makeCard('keep', 2);
+  const first = makeCard('first', 5, 'lebu');
+  const second = makeCard('second', 8, 'shandian');
+  const target = {
+    id: 'target', name: '目标', alive: true, hand: [keep], hp: 4, maxHp: 4, team: 'B',
+    equips: {}, judge: [first, second], secrets: [],
+  };
+  const requests = [];
+  const choices = [first.id, second.id];
+  const discarded = [];
+  const engine = {
+    alivePlayers: [player, target], over: false,
+    agentOf() { return { kind: 'human' }; },
+    async doJudge() { return { suit: 'diamond' }; },
+    async ask(askedPlayer, req) {
+      requests.push({ askedPlayer, req });
+      if (req.type === REQ.SELECT_PLAYERS) return { ids: [target.id] };
+      if (req.type === REQ.CHOOSE_CARD) return { card: choices.shift() };
+      return null;
+    },
+    playerById(id) { return this.alivePlayers.find((p) => p.id === id); },
+    isAlly() { return false; },
+    discardCards(owner, cards) {
+      discarded.push(...cards);
+      owner.hand = owner.hand.filter((c) => !cards.includes(c));
+      owner.judge = owner.judge.filter((c) => !cards.includes(c));
+    },
+    log() {},
+  };
+
+  await HS_SKILLS.yuansu.triggers.startPhase(engine, { player });
+
+  const selectRequest = requests.find(({ req }) => req.type === REQ.SELECT_PLAYERS)?.req;
+  const cardRequests = requests.filter(({ req }) => req.type === REQ.CHOOSE_CARD);
+  assert.equal(selectRequest.players[0].team, 'B');
+  assert.equal(cardRequests.length, 2);
+  assert.equal(cardRequests.every(({ askedPlayer }) => askedPlayer === player), true);
+  assert.match(cardRequests[0].req.title, /1\/2/);
+  assert.match(cardRequests[1].req.title, /2\/2/);
+  assert.deepEqual(discarded.map((c) => c.id), [first.id, second.id]);
+  assert.deepEqual(target.hand.map((c) => c.id), [keep.id]);
 });
 
 test('伦鲁迪洛尔要求一次选择三张不同花色的牌', async () => {

@@ -6,6 +6,7 @@ import { CARD_DEFS } from '../src/engine/cards.js';
 import { PHASE } from '../src/engine/constants.js';
 import { resolveCard } from '../src/engine/effects.js';
 import { HS_SKILLS } from '../src/engine/skills-hs.js';
+import { GameUI } from '../src/ui/table.js';
 
 function player(id, skills = []) {
   return {
@@ -98,4 +99,49 @@ test('时空之门弃置4张双生牌，并在额外回合后恢复正常座次'
 
   engine._advanceTurn();
   assert.equal(engine.current, next, '额外回合结束后应回到原本的下一名角色');
+});
+
+test('卡德加回合开始解锁双生牌时资源栏可以正常渲染', () => {
+  const kadgar = player('kadgar', ['shuangsheng', 'shikongmen']);
+  const stored = card('stored', 'wuzhong', 'club', 7);
+  stored.twinStoredBy = kadgar.id;
+  stored.twinReady = true;
+  kadgar.pile.push(stored);
+  const snapshot = { turnId: kadgar.id, phase: PHASE.START };
+  const engine = {
+    snapshot: () => snapshot,
+    playerById: (id) => (id === kadgar.id ? kadgar : null),
+  };
+  const ui = new GameUI(engine, kadgar.id);
+
+  const startPhaseItems = ui._resourceItems(kadgar);
+  const twinAtStart = startPhaseItems.find((item) => item.key === 'twin');
+  assert.equal(twinAtStart.value, 1);
+  assert.equal(twinAtStart.active, false);
+
+  snapshot.phase = PHASE.PLAY;
+  const twinAtPlay = ui._resourceItems(kadgar).find((item) => item.key === 'twin');
+  assert.equal(twinAtPlay.active, true);
+  assert.match(twinAtPlay.preview[0], /可用/);
+});
+
+test('牌桌组件渲染失败时保留上一帧而不是清空屏幕', () => {
+  const ui = new GameUI({ snapshot: () => ({}) }, 'kadgar');
+  const sentinel = {};
+  let removed = false;
+  const wrap = {
+    firstChild: sentinel,
+    querySelector: () => null,
+    removeChild() {
+      removed = true;
+      this.firstChild = null;
+    },
+    appendChild() {},
+  };
+  ui.root = { querySelector: () => wrap };
+  ui._renderTopBar = () => { throw new Error('render failed'); };
+
+  assert.throws(() => ui.render(), /render failed/);
+  assert.equal(removed, false);
+  assert.equal(wrap.firstChild, sentinel);
 });

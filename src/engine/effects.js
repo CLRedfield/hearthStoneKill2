@@ -287,7 +287,7 @@ async function fireExplosiveRunes(engine, user, card) {
   const reals = card.virtual ? (card.sourceCards || []) : [card];
   engine.toDiscard(reals, user);
   engine.log(`${holder.name} 触发奥秘【爆炸符文】，【${card.name}】被炸毁！`, 'good');
-  const extra = randomCardOf(user);
+  const extra = await chooseTargetCard(engine, holder, user, `爆炸符文：弃掉 ${user.name} 的一张牌`, true, true);
   if (extra) engine.discardCards(user, [extra]);
   engine.changed();
   await engine.pause(320);
@@ -597,7 +597,8 @@ async function playZhaomingdan(engine, user, card) {
     const all = listSecrets();
     let mine = 0;
     for (const { p, sc } of all) { removeFrom(p.secrets, sc); engine.discard.push(sc); if (p === user) mine++; }
-    engine.log(`${user.name} 的【照明弹】弃掉场上 ${all.length} 张奥秘！`, 'play');
+    const names = all.map(({ p, sc }) => `${p.name}的【${sc.name}】`).join('、');
+    engine.log(`${user.name} 的【照明弹】弃掉场上 ${all.length} 张奥秘${names ? `：${names}` : ''}！`, 'play');
     engine.changed();
     if (!mine) {
       engine.log(`${user.name} 没有弃掉自己的奥秘，受到2点强制伤害！`, 'bad');
@@ -614,13 +615,13 @@ async function playZhaomingdan(engine, user, card) {
   } else {
     const r = await engine.ask(user, {
       type: REQ.CHOOSE_OPTION, title: '照明弹：可弃掉场上1张奥秘（可放弃）',
-      options: [...all.map(({ p, i }, idx) => ({ value: idx, label: `${p.name} 的奥秘#${i + 1}` })), { value: 'skip', label: '放弃' }],
+      options: [...all.map(({ p, sc }, idx) => ({ value: idx, label: `${p.name} 的【${sc.name}】` })), { value: 'skip', label: '放弃' }],
     });
     if (r && r.value !== 'skip') chosen = all[r.value | 0] || null;
   }
   if (chosen) {
     removeFrom(chosen.p.secrets, chosen.sc); engine.discard.push(chosen.sc);
-    engine.log(`${user.name} 的【照明弹】弃掉 ${chosen.p.name} 的一张奥秘。`, 'play');
+    engine.log(`${user.name} 的【照明弹】弃掉 ${chosen.p.name} 的【${chosen.sc.name}】。`, 'play');
     engine.changed();
   }
 }
@@ -661,7 +662,7 @@ async function playAnzhong(engine, user, target, card) {
       type: REQ.CHOOSE_OPTION, title: `暗中破坏·连击：再弃掉 ${target.name} 的一张奥秘或装备（可放弃）`,
       options: [
         ...eqs.map((c) => ({ value: 'e:' + c.id, label: c.name, card: c })),
-        ...slots.map(({ i }) => ({ value: 's:' + i, label: `奥秘#${i + 1}` })),
+        ...slots.map(({ sc, i }) => ({ value: 's:' + i, label: `奥秘【${sc.name}】`, card: sc })),
         { value: 'skip', label: '放弃' },
       ],
     });
@@ -676,7 +677,7 @@ async function playAnzhong(engine, user, target, card) {
     engine.log(`连击！${user.name} 再弃掉 ${target.name} 的【${choice.c.name}】。`, 'play');
   } else {
     removeFrom(target.secrets, choice.sc); engine.discard.push(choice.sc);
-    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的一张奥秘。`, 'play');
+    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的【${choice.sc.name}】。`, 'play');
     engine.changed();
   }
 }
@@ -1360,22 +1361,21 @@ async function playShunshou(engine, user, target, card) {
   if (picked) { engine.gainCard(user, picked); engine.log(`${user.name} 获得了 ${target.name} 的一张牌。`); }
 }
 
-// 选择目标的一张牌（手牌不可见时随机一张）
-async function chooseTargetCard(engine, user, target, title, hideHand, includeSecrets = false) {
+// 选择目标的一张牌：手牌保持隐藏；弃置效果中的奥秘显示名称，便于明确选择
+export async function chooseTargetCard(engine, user, target, title, hideHand, includeSecrets = false) {
   const eligible = includeSecrets ? discardableCards(target) : gainableCards(target);
   const randomEligible = () => eligible[Math.floor(Math.random() * eligible.length)] || null;
   const visible = [];
   equipmentCards(target).forEach((c) => visible.push({ card: c, zone: '装备' }));
   target.judge.forEach((c) => visible.push({ card: c, zone: '判定' }));
+  if (includeSecrets) (target.secrets || []).forEach((c) => visible.push({ card: c, zone: '奥秘' }));
   const handChoice = target.hand.length ? { handCount: target.hand.length } : null;
-  const secretChoice = includeSecrets && target.secrets?.length ? { secretCount: target.secrets.length } : null;
   const resp = await engine.ask(user, {
     type: REQ.CHOOSE_CARD, title, target,
-    visibleCards: visible, handChoice, secretChoice, fromPlayer: target.id,
+    visibleCards: visible, handChoice, fromPlayer: target.id,
   });
   if (resp?.card) {
     if (resp.card === 'hand') return randomHand(target);
-    if (resp.card === 'secret' && includeSecrets) return target.secrets[Math.floor(Math.random() * target.secrets.length)] || randomEligible();
     const found = eligible.find((card) => card.id === resp.card);
     return found || randomEligible();
   }

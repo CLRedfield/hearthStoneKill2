@@ -54,6 +54,7 @@ export function chooseDialog(title, options, { closable = false } = {}) {
           el('span', { class: 'cp-info' }, [
             el('span', { class: 'cp-general', text: pi.general || '未知' }),
             el('span', { class: 'cp-hp', text: `♥${pi.hp}/${pi.maxHp}` }),
+            pi.team ? el('span', { class: `cp-team team-${pi.team}`, text: `${pi.team}队` }) : null,
           ]),
         ]));
         return;

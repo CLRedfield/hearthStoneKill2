@@ -2,7 +2,7 @@
 import { el, clear, mount } from './dom.js';
 import { openOverlay, chooseDialog, chooseGeneralDialog, miniCardNode, toast } from './prompts.js';
 import {
-  PHASE_NAME, IDENTITY_NAME, FACTION_NAME, FACTION_COLOR, SUIT_SYMBOL,
+  PHASE, PHASE_NAME, IDENTITY_NAME, FACTION_NAME, FACTION_COLOR, SUIT_SYMBOL,
   EQUIP_SLOT, EQUIP_SLOT_NAME, MODE, REQ, rankLabel,
 } from '../engine/constants.js';
 import { CARD_DEFS, virtualCard } from '../engine/cards.js';
@@ -97,14 +97,17 @@ export class GameUI {
     const snap = this.engine.snapshot(this.viewerId);
     // 记住手牌横向滚动位置，避免重渲染（如点击别处）后被重置到最左
     const prevHandScroll = wrap.querySelector('.hand-row')?.scrollLeft || 0;
+    // 先完整构建下一帧；若某个组件渲染失败，保留当前牌桌而不是留下空白屏幕。
+    const nextFrame = [
+      this._renderTopBar(snap),
+      this._renderOpponents(snap),
+      this._renderCenter(snap),
+      this._renderSelf(snap),
+      this._renderActionBar(snap),
+      this._renderLogPanel(snap),
+    ];
     clear(wrap);
-
-    wrap.appendChild(this._renderTopBar(snap));
-    wrap.appendChild(this._renderOpponents(snap));
-    wrap.appendChild(this._renderCenter(snap));
-    wrap.appendChild(this._renderSelf(snap));
-    wrap.appendChild(this._renderActionBar(snap));
-    wrap.appendChild(this._renderLogPanel(snap));
+    nextFrame.forEach((node) => wrap.appendChild(node));
     // 恢复手牌滚动位置
     const newHand = wrap.querySelector('.hand-row');
     if (newHand && prevHandScroll) newHand.scrollLeft = prevHandScroll;
@@ -342,6 +345,7 @@ export class GameUI {
     const isTurn = this.engine.snapshot().turnId === p.id;
     const selectable = this._isSelectableTarget(p.id);
     const selected = this.targets.includes(p.id);
+    const targetIndex = this.targets.indexOf(p.id);
     const cls = [
       'player', isMe ? 'me' : 'opp',
       !p.alive ? 'dead' : '', isTurn ? 'is-turn' : '',
@@ -442,10 +446,18 @@ export class GameUI {
 
     const node = el('div', {
       class: cls, dataset: { pid: p.id },
+      'aria-pressed': selected ? 'true' : 'false',
       onclick: () => { if (selectable) this._onTargetClick(p.id); },
     }, [portrait, info, resources, skills, equips, judge, tokens]);
 
     if (!p.alive) node.appendChild(el('div', { class: 'dead-overlay', text: '阵亡' }));
+    if (selected) {
+      const mark = this._targetMark(p.id, targetIndex);
+      node.appendChild(el('div', { class: 'target-lock-badge', 'aria-hidden': 'true' }, [
+        el('span', { class: 'target-lock-order', text: mark.order }),
+        el('span', { class: 'target-lock-label', text: mark.label }),
+      ]));
+    }
     return node;
   }
 
@@ -582,8 +594,19 @@ export class GameUI {
     if (req && req.type === REQ.PLAY_TURN) {
       // 出牌阶段：确定 / 取消 / 技能 / 结束
       if (this.activeCard) {
-        const ready = !this.activeOption?.needTarget || this.targets.length >= 1;
-        ctrl.appendChild(el('button', { class: `btn btn-primary ${ready ? '' : 'disabled'}`, text: '确定', onclick: () => { if (ready) this._confirmPlay(); } }));
+        const needsTarget = !!this.activeOption?.needTarget;
+        const requiredTargets = this._isTwoStep(this.activeOption) ? 2 : (needsTarget ? 1 : 0);
+        const ready = this.targets.length >= requiredTargets;
+        if (needsTarget) {
+          const status = this._targetStatus();
+          ctrl.classList.add('targeting');
+          ctrl.appendChild(el('span', {
+            class: `ab-target-status ${status.complete ? 'complete' : 'pending'}`,
+            role: 'status', 'aria-live': 'polite', text: status.text,
+          }));
+        }
+        const confirmText = needsTarget ? `确认目标 · ${this.targets.length}/${this._maxTargets()}` : '确定';
+        ctrl.appendChild(el('button', { class: `btn btn-primary ${ready ? '' : 'disabled'}`, text: confirmText, onclick: () => { if (ready) this._confirmPlay(); } }));
         ctrl.appendChild(el('button', { class: 'btn btn-ghost', text: '取消', onclick: () => this._clearActive() }));
       } else {
         // 主动技能按钮
@@ -776,10 +799,42 @@ export class GameUI {
     if (this._isTwoStep(option)) this.jiedaoStep = 1;
     this.render();
   }
-  _clearActive() { this.activeCard = null; this.activeOption = null; this.targets = []; this.jiedaoStep = 0; this.render(); }
+  _clearActive() { this.activeCard = null; this.activeOption = null; this.targets = []; this.jiedaoStep = 0; this.jiedaoHolder = null; this.render(); }
 
   // 借刀杀人 / 横冲直撞：两段选目标（先选被驱使者，再选其攻击范围内的受害者）
   _isTwoStep(o) { return o && (o.kind === 'jiedao' || o.kind === 'hengchong'); }
+
+  _targetMark(pid, index) {
+    if (this._isTwoStep(this.activeOption)) {
+      return pid === this.jiedaoHolder
+        ? { order: '1', label: '被驱使者' }
+        : { order: '2', label: '攻击目标' };
+    }
+    const max = this._maxTargets();
+    return max > 1
+      ? { order: String(index + 1), label: `目标 ${index + 1}` }
+      : { order: '✓', label: '已选中' };
+  }
+
+  _targetStatus() {
+    if (this._isTwoStep(this.activeOption)) {
+      const holder = this.engine.playerById(this.jiedaoHolder);
+      const victim = this.engine.playerById(this.targets[1]);
+      if (!holder) return { complete: false, text: '第 1 步 · 请选择被驱使者（0/2）' };
+      if (!victim) return { complete: false, text: `第 2 步 · ${holder.name} 将出手，请选择攻击目标（1/2）` };
+      return { complete: true, text: `目标已锁定 · ${holder.name} → ${victim.name}（2/2）` };
+    }
+
+    const max = this._maxTargets();
+    const names = this.targets.map((id) => this.engine.playerById(id)?.name).filter(Boolean);
+    if (!names.length) {
+      return { complete: false, text: max > 1 ? `请选择目标（0/${max}，可多选）` : '请选择 1 名目标' };
+    }
+    return {
+      complete: true,
+      text: max > 1 ? `已选 ${names.length}/${max} · ${names.join('、')}` : `已锁定目标 · ${names[0]}`,
+    };
+  }
 
   _maxTargets() {
     const o = this.activeOption;
@@ -1146,9 +1201,13 @@ export class GameUI {
       const body = el('div', { class: 'pick-players' });
       let ov;
       players.forEach((p) => body.appendChild(el('button', {
-        class: 'btn pick-player-btn', text: `${p.name}（${p.general?.name || '?'}） ${'♥'.repeat(p.hp)}`,
+        class: 'btn pick-player-btn single-player-option',
         onclick: () => { ov.close(); resolve(p.id); },
-      })));
+      }, [
+        el('span', { class: 'mp-name', text: p.name }),
+        p.team ? el('span', { class: `mp-team team-${p.team}`, text: `${p.team}队` }) : null,
+        el('span', { class: 'mp-meta', text: `${p.general?.name || p.general || '?'} · ${p.hp}/${p.maxHp || p.hp}体力` }),
+      ])));
       ov = openOverlay({ title, bodyNode: body, buttons: [{ label: '取消', onClick: () => { ov.close(); resolve(null); } }] });
     });
   }
@@ -1177,6 +1236,7 @@ export class GameUI {
           }, [
             el('span', { class: 'mp-check', text: active ? '✓' : '' }),
             el('span', { class: 'mp-name', text: p.name }),
+            p.team ? el('span', { class: `mp-team team-${p.team}`, text: `${p.team}队` }) : null,
             el('span', { class: 'mp-meta', text: `${p.general?.name || p.general || '?'} · ${p.hp}/${p.maxHp || p.hp}体力` }),
           ]));
         });

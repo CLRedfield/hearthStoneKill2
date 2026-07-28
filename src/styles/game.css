@@ -38,9 +38,35 @@
 }
 .player.is-turn { border-color: var(--gold-bright); box-shadow: 0 0 0 2px rgba(236,202,94,.5), 0 0 26px rgba(201,162,39,.35); }
 .player.is-turn::after { content: "行动中"; position: absolute; top: -10px; right: 8px; background: var(--gold); color: #2a1d05; font-size: 11px; padding: 1px 8px; border-radius: 8px; font-weight: 700; }
-.player.selectable { cursor: pointer; border-color: var(--red-bright); animation: tgtPulse 1.1s ease-in-out infinite; }
+.player.selectable { cursor: pointer; border-color: var(--red-bright); }
+.player.selectable:not(.selected) { animation: tgtPulse 1.1s ease-in-out infinite; }
 .player.selectable:hover { transform: translateY(-2px); }
-.player.selected { border-color: var(--red-bright); box-shadow: 0 0 0 3px rgba(224,88,79,.6), 0 0 22px rgba(224,88,79,.4); }
+.player.selected {
+  z-index: 8; transform: translateY(-3px) scale(1.025); border-color: #ffe69a;
+  background: linear-gradient(180deg, rgba(94,67,24,.96), var(--ink-1));
+  box-shadow: 0 0 0 3px rgba(255,226,132,.9), 0 0 0 7px rgba(201,162,39,.2), 0 0 32px rgba(255,194,61,.68), 0 9px 22px rgba(0,0,0,.48);
+  animation: targetLockIn .24s cubic-bezier(.2,.9,.25,1.25) both;
+}
+.player.selected::before {
+  content: ""; position: absolute; inset: -6px; z-index: -1; pointer-events: none;
+  border: 1px solid rgba(255,226,132,.72); border-radius: 16px;
+  box-shadow: inset 0 0 18px rgba(255,205,84,.14); animation: targetLockedGlow 1.6s ease-in-out infinite;
+}
+.target-lock-badge {
+  position: absolute; z-index: 12; top: -14px; left: 8px; pointer-events: none;
+  display: flex; align-items: center; gap: 5px; min-height: 25px; padding: 2px 9px 2px 3px;
+  color: #2b1c05; background: linear-gradient(180deg, #fff0a7, #d9a92f);
+  border: 1px solid #fff2ad; border-radius: 14px; box-shadow: 0 3px 12px rgba(0,0,0,.5), 0 0 14px rgba(255,211,91,.55);
+  font-size: 11px; font-weight: 800; letter-spacing: .5px; white-space: nowrap;
+  animation: targetBadgeIn .28s cubic-bezier(.2,.9,.25,1.35) both;
+}
+.target-lock-order {
+  width: 19px; height: 19px; display: grid; place-items: center; flex: 0 0 auto;
+  color: #fff8d9; background: #5b3608; border-radius: 50%; font-size: 11px; line-height: 1;
+}
+@keyframes targetLockIn { from { transform: translateY(0) scale(.96); filter: brightness(1.7); } to { transform: translateY(-3px) scale(1.025); filter: brightness(1); } }
+@keyframes targetBadgeIn { from { opacity: 0; transform: translateY(7px) scale(.8); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes targetLockedGlow { 0%,100% { opacity: .6; transform: scale(.985); } 50% { opacity: 1; transform: scale(1.018); } }
 @keyframes tgtPulse { 0%,100% { box-shadow: 0 0 0 1px rgba(224,88,79,.5); } 50% { box-shadow: 0 0 0 3px rgba(224,88,79,.55), 0 0 18px rgba(224,88,79,.45); } }
 .player.dead { filter: grayscale(.85) brightness(.6); }
 
@@ -190,6 +216,16 @@
 .hand-empty { color: var(--text-dim); align-self: center; }
 .ab-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; min-height: 36px; align-items: center; }
 .ab-hint, .ab-controls .ab-hint { color: var(--text-dim); font-size: 13px; }
+.ab-target-status {
+  flex: 0 1 auto; min-width: min(330px, calc(100vw - 24px)); padding: 7px 13px;
+  border: 1px solid rgba(224,88,79,.58); border-radius: 8px;
+  color: #f4d6d1; background: rgba(72,24,20,.74); box-shadow: inset 3px 0 0 var(--red-bright);
+  font-size: 13px; font-weight: 650; text-align: center; letter-spacing: .2px;
+}
+.ab-target-status.complete {
+  color: #fff1b6; border-color: rgba(236,202,94,.7); background: rgba(75,53,17,.8);
+  box-shadow: inset 3px 0 0 var(--gold-bright), 0 0 14px rgba(201,162,39,.16);
+}
 
 /* 日志 / 战报（可收起） */
 .log-panel {
@@ -239,12 +275,18 @@
 @keyframes gxCardIn { from { opacity: 0; transform: translateY(5px) scale(.97); } to { opacity: 1; transform: none; } }
 .pick-players { display: flex; flex-direction: column; gap: 8px; }
 .pick-player-btn { text-align: left; }
+.single-player-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; align-items: center; }
+.single-player-option .mp-meta { grid-column: 1 / 3; }
 .multi-player-body { width: min(680px, 82vw); display: flex; flex-direction: column; gap: 12px; }
 .multi-player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 9px; }
-.multi-player-option { position: relative; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto; column-gap: 8px; padding: 10px 12px; border-color: rgba(201,162,39,.28); }
+.multi-player-option { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; padding: 10px 12px; border-color: rgba(201,162,39,.28); }
 .multi-player-option.selected { border-color: var(--gold-bright); background: rgba(201,162,39,.16); box-shadow: inset 0 0 0 1px rgba(236,202,94,.16); }
 .mp-check { grid-row: 1 / 3; width: 22px; height: 22px; align-self: center; display: grid; place-items: center; border: 1px solid rgba(201,162,39,.45); border-radius: 50%; color: var(--gold-bright); }
 .mp-name { color: var(--text); font-weight: 700; }
+.mp-team { align-self: center; padding: 1px 7px; border-radius: 8px; color: #fff; font-size: 10px; font-weight: 750; line-height: 15px; }
+.mp-team.team-A { background: #2e6fb0; }
+.mp-team.team-B { background: #b8312a; }
+.multi-player-option .mp-meta { grid-column: 2 / 4; }
 .mp-meta { color: var(--text-dim); font-size: 11px; }
 .swap-cards-body .gx-card.selected { animation: none; }
 .mini-card { position: relative; width: 62px; height: 86px; border-radius: 8px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e; color: #2a2016; cursor: pointer; padding: 5px; box-shadow: 0 3px 8px var(--shadow); transition: transform .12s; display: flex; flex-direction: column; overflow: hidden; }
@@ -393,6 +435,9 @@
   .action-bar { flex: 0 0 auto; }
   .player { width: 112px; padding: 6px 7px; border-radius: 9px; gap: 4px; }
   .player.is-turn::after { font-size: 9px; padding: 1px 5px; top: -8px; }
+  .player.selected { transform: translateY(-2px) scale(1.02); }
+  .target-lock-badge { top: -11px; left: 4px; min-height: 21px; padding: 1px 7px 1px 2px; font-size: 9px; }
+  .target-lock-order { width: 17px; height: 17px; font-size: 9px; }
   .p-portrait { width: 28px; height: 28px; top: 6px; right: 6px; }
   .p-pchar { font-size: 17px; }
   .p-name { font-size: 12px; } .p-general { font-size: 10px; }
@@ -426,6 +471,8 @@
   .action-bar { position: relative; z-index: 25; padding: 6px 0 max(10px, env(safe-area-inset-bottom, 0px)); gap: 5px; background: linear-gradient(0deg, var(--ink-2) 68%, transparent); }
   .ab-title { font-size: 14px; }
   .ab-controls { width: 100%; gap: 7px; padding: 0 6px 2px; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+  .ab-controls.targeting { flex-wrap: wrap; justify-content: center; overflow-x: visible; }
+  .ab-controls.targeting .ab-target-status { flex: 0 0 calc(100% - 12px); min-width: 0; padding: 6px 9px; font-size: 12px; }
   .ab-controls .btn { flex: 0 0 auto; min-height: 44px; padding: 9px 16px; touch-action: manipulation; }
   /* 日志收到顶部、缩小；聊天收窄 */
   .log-panel { width: 144px; bottom: auto; top: 44px; left: 6px; font-size: 11px; padding: 5px 7px; opacity: .92; }

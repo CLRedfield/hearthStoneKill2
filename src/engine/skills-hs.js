@@ -62,7 +62,7 @@ async function resolveWhisper(engine, source, target, need, damage, title = '低
   else await engine.dealDamage({ source, target, amount: damage });
 }
 
-// 重新使用一张牌（看吧!/双生魔法）：用牌面信息凭空再使用一次，自动选目标
+// 重新使用一张牌（看吧!/双生魔法）：真人选择目标，AI 使用启发式目标
 async function autoReplay(engine, player, info) {
   if (!info || !player.alive) return;
   const { resolveCard, validTargets, shaTargets } = await import('./effects.js');
@@ -70,10 +70,26 @@ async function autoReplay(engine, player, info) {
   const v = virtualCard(info.kind, [], { suit: info.suit, number: info.number, red: info.red });
   const role = cardAs(v);
   const others = engine.alivePlayers.filter((p) => p !== player);
+  const human = engine.agentOf?.(player)?.kind !== 'ai';
+  const pick = async (cands, byHp) => {
+    if (!cands.length) return null;
+    const sorted = cands.slice().sort((a, b) => {
+      const aa = engine.isAlly(player, a) ? 1 : 0, bb = engine.isAlly(player, b) ? 1 : 0;
+      if (aa !== bb) return aa - bb;
+      return byHp ? a.hp - b.hp : b.hand.length - a.hand.length;
+    });
+    if (!human) return sorted[0];
+    const r = await engine.ask(player, {
+      type: REQ.CHOOSE_OPTION,
+      title: `再次使用【${v.name}】：选择目标`,
+      options: sorted.map((p) => ({ value: p.id, label: p.name })),
+    });
+    return engine.playerById(r?.value) || sorted[0];
+  };
   let targets = [];
   if (role === 'sha') {
-    const t = shaTargets(engine, player).filter((x) => !engine.isAlly(player, x));
-    if (!t.length) return; targets = [t.sort((a, b) => a.hp - b.hp)[0]];
+    const t = await pick(shaTargets(engine, player), true);
+    if (!t) return; targets = [t];
   } else if (role === 'tao') { if (player.hp >= player.maxHp) return; }
   else if (role === 'jiu') { /* self */ }
   else if (def.type === CARD_TYPE.TRICK && def.as !== 'wuxie') {
@@ -81,8 +97,8 @@ async function autoReplay(engine, player, info) {
     else if (def.target === 'all') targets = engine.alivePlayers.slice();
     else if (def.target === 'all_other') targets = others;
     else {
-      const vt = validTargets(engine, player, v).filter((x) => !engine.isAlly(player, x));
-      if (!vt.length) return; targets = [vt.sort((a, b) => b.hand.length - a.hand.length)[0]];
+      const t = await pick(validTargets(engine, player, v), false);
+      if (!t) return; targets = [t];
     }
   } else return; // 装备/延时/无懈不重演
   engine.log(`${player.name} 重新使用【${v.name}】！`, 'good');
@@ -105,7 +121,6 @@ async function fireShengchu(engine, player, reason = '') {
   engine.drawCards(player, 1);
 }
 
-// 立即使用一张“实体牌”（暗影箭雨夺取后使用）：自动选目标，由 user 结算
 // 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
 async function useRealCard(engine, user, card, interactive = false, allowDead = false) {
   if (!card || (!user.alive && !allowDead)) return; // allowDead：亡语等让已死亡角色也能结算用牌
@@ -438,7 +453,7 @@ export const HS_SKILLS = {
             maxCount: max,
             players: cands.map((p) => ({
               id: p.id, name: p.name, general: p.general?.name || p.general || '',
-              hp: p.hp, maxHp: p.maxHp, faction: p.faction,
+              hp: p.hp, maxHp: p.maxHp, faction: p.faction, team: p.team,
             })),
           });
           const ids = Array.isArray(r?.ids) ? [...new Set(r.ids)] : [];
@@ -459,10 +474,18 @@ export const HS_SKILLS = {
         } else {
           const cands = others.filter((p) => anyCards(p).length);
           const list = await pickMulti(cands, 3, '元素之力（♦）：选择至多三名角色各弃2张牌', enemyRich);
+          const { chooseTargetCard } = await import('./effects.js');
           for (const t of list) {
-            const drop = [];
-            for (let i = 0; i < 2 && anyCards(t).filter((c) => !drop.includes(c)).length; i++) drop.push(rand(anyCards(t).filter((c) => !drop.includes(c))));
-            if (drop.length) engine.discardCards(t, drop);
+            const count = Math.min(2, anyCards(t).length);
+            for (let i = 0; i < count; i++) {
+              const picked = await chooseTargetCard(
+                engine, player, t,
+                `元素之力（♦）：弃置 ${t.name} 的一张牌（${i + 1}/${count}）`,
+                true, true,
+              );
+              if (!picked) break;
+              engine.discardCards(t, [picked]);
+            }
           }
         }
       },
@@ -698,7 +721,7 @@ export const HS_SKILLS = {
         chosen = revealed.find((x) => x.card.id === r?.card) || revealed[0];
       }
       removeFromHand(chosen.owner.hand, chosen.card); engine.changed();
-      await useRealCard(engine, player, chosen.card);
+      await useRealCard(engine, player, chosen.card, true);
     },
   },
   xuehou: {
@@ -749,7 +772,15 @@ export const HS_SKILLS = {
         if (engine.agentOf(player)?.kind === 'ai') pick = (player.hp < player.maxHp || !enemies.length) ? 'heal' : 'mark';
         else { const opts = []; if (enemies.length) opts.push({ value: 'mark', label: '明置一名角色手牌（其使用时你火球之）' }); opts.push({ value: 'heal', label: '恢复1点体力' }); const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: '奥：选择', options: opts }); pick = r?.value || 'heal'; }
         if (pick === 'mark' && enemies.length) {
-          const t = enemies.sort((a, b) => a.hp - b.hp)[0];
+          let t = enemies.sort((a, b) => a.hp - b.hp)[0];
+          if (engine.agentOf(player)?.kind !== 'ai') {
+            const r = await engine.ask(player, {
+              type: REQ.CHOOSE_OPTION,
+              title: '奥：选择要明置手牌的角色',
+              options: enemies.map((p) => ({ value: p.id, label: p.name })),
+            });
+            t = engine.playerById(r?.value) || t;
+          }
           const c = t.hand[Math.floor(Math.random() * t.hand.length)];
           c.aoMark = player.id;
           engine.log(`${player.name} 发动【奥】，明置 ${t.name} 的一张手牌。`, 'play'); engine.changed();

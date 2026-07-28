@@ -54,7 +54,7 @@ export const CARD_DEFS = {
   beici: { name: '背刺', type: CARD_TYPE.BASIC, as: 'sha', vsFull: 2, desc: '造成1点伤害；若目标满体力则改为2点。' },
   huoqiu: { name: '火球术', type: CARD_TYPE.BASIC, as: 'sha', vsEquip: 2, desc: '造成1点伤害；若目标有装备则改为2点。' },
   hanbingjian: { name: '寒冰箭', type: CARD_TYPE.BASIC, as: 'sha', freeze: 1, desc: '造成1点伤害，并冻结目标1张手牌。' },
-  shandianjian: { name: '闪电箭', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, overload: 1, desc: '造成2点伤害；过载1（下回合少摸1张）。' },
+  shandianjian: { name: '闪电箭', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, overload: 1, desc: '造成2点伤害；过载1（之后每次摸牌时优先抵消，直至耗尽）。' },
   linghunzhihuo: { name: '灵魂之火', type: CARD_TYPE.BASIC, as: 'sha', dmg: 2, selfDiscardOnTarget: true, desc: '造成2点普通伤害；指定目标后由目标为你指定弃置一张牌（你没有牌则不弃），无论是否命中。' },
   cigu: { name: '刺骨', type: CARD_TYPE.BASIC, as: 'sha', unblockableIfUsed: true, desc: '造成1点伤害；若本回合此前已用过其他牌，则改为强制伤害（无法被闪避）。' },
   // ========== 闪类（as:'shan'） ==========
