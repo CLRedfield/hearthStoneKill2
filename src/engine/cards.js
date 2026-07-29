@@ -131,6 +131,10 @@ export const CARD_DEFS = {
   runblade: { name: '伦鲁迪洛尔', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 3, discardSuitsRefill: true, desc: '装备时，你可以弃掉3张不同花色的牌，然后将手牌摸至手牌上限。' },
   runespear: { name: '符文之矛', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 2, drawAfterSha: 2, durability: 3, desc: '你使用【杀】结算后摸2张牌并立即使用；触发3次后此武器损坏。' },
   esinosblade: { name: '埃辛诺斯刃', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, dynamicRange: 'drawnThisTurn', noShanIfFew: true, desc: '攻击范围X等于你本回合摸牌数。在你的回合，手牌数小于你攻击范围的角色无法使用【闪】。' },
+  dragonsoul: { name: '巨龙之魂', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.WEAPON, range: 1, discardRewardEvery: 3, desc: '在你的回合中，你每使用3张牌，便可以获得弃牌堆中1张牌并使其冻结。' },
+  warhorse: { name: '战马', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.DEFENSE_HORSE, dualHorse: true, slotName: '坐骑（+1/-1）', reEquipFromDiscard: true, desc: '该坐骑存在时无法拥有其他坐骑。在该牌被置入弃牌堆时，你可以弃掉1张牌并将此牌重新置入你的装备区。' },
+  thunderelephant: { name: '雷象', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.OFFENSE_HORSE, sacrificeAvoidNormal: true, desc: '你可以弃掉该坐骑并免疫一次普通伤害。' },
+  sworddragon: { name: '剑龙', type: CARD_TYPE.EQUIP, slot: EQUIP_SLOT.DEFENSE_HORSE, sacrificeAvoidNormal: true, desc: '你可以弃掉该坐骑并免疫一次普通伤害。' },
   // ========== 克苏恩·破碎部件（抽到/判定到立即触发，使克苏恩受益）==========
   cthunheart: { name: '克苏恩之心', type: CARD_TYPE.BASIC, shard: 'heart', desc: '破碎：克苏恩体力上限+1并回复1点。' },
   cthuneye: { name: '克苏恩之眼', type: CARD_TYPE.BASIC, shard: 'eye', desc: '破碎：克苏恩获得3张【冲锋】。' },
@@ -260,10 +264,20 @@ const HS_DECK_LIST = [
   ...genN('hengchong', 3), ...genN('anyingbu', 2), ...genN('fengkuangzhizaihuo', 1),
   // 锦囊（延时）
   ...genN('fushishu', 3), ...genN('pingzhuangshandian', 1), ...genN('guldanhand', 2),
-  // 装备·武器（全 12 件）
+  // 装备·武器（原 12 件 + 巨龙之魂）
   ...genN('susasi', 1), ...genN('ailunisi', 1), ...genN('worldtree', 1), ...genN('sulfuras', 1),
   ...genN('collider', 1), ...genN('silverspear', 1), ...genN('wanqian', 1), ...genN('valanyr', 1),
   ...genN('regicide', 1), ...genN('runblade', 1), ...genN('runespear', 1), ...genN('esinosblade', 1),
+  // 新增装备（按牌面固定花色/点数）
+  { kind: 'dragonsoul', suit: 'heart', number: 3 },
+  { kind: 'warhorse', suit: 'club', number: 10 },
+  { kind: 'warhorse', suit: 'club', number: 10 },
+  { kind: 'thunderelephant', suit: 'heart', number: 5 },
+  { kind: 'thunderelephant', suit: 'heart', number: 5 },
+  { kind: 'thunderelephant', suit: 'heart', number: 5 },
+  { kind: 'sworddragon', suit: 'club', number: 5 },
+  { kind: 'sworddragon', suit: 'club', number: 5 },
+  { kind: 'sworddragon', suit: 'club', number: 5 },
   // 装备·防具（全 8 件）
   ...genN('wukehandong', 1), ...genN('tadun', 1), ...genN('esinoshield', 1), ...genN('robe', 1),
   ...genN('rebirtharmor', 1), ...genN('bombshield', 1), ...genN('iceshield', 1), ...genN('cloudshield', 1),

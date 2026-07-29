@@ -1,9 +1,9 @@
 // ====================== 动画特效层 ======================
 import { el } from './dom.js';
-import { SUIT_SYMBOL, rankLabel } from '../engine/constants.js';
+import { EQUIP_SLOT, SUIT_SYMBOL, rankLabel } from '../engine/constants.js';
+import { CARD_DEFS } from '../engine/cards.js';
 
 const TOKEN_W = 54, TOKEN_H = 76;
-const USE_W = 78, USE_H = 108;
 
 function center(node) { const r = node.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
 const kindAccent = (type) => ({ trick: '#9a6dce', delayed: '#dc9742', equip: '#43a86c', secret: '#a98be8', basic: '#ddb84d' }[type] || '#ddb84d');
@@ -25,13 +25,37 @@ export class FxLayer {
   }
 
   _token(info, context = null) {
+    if (context) {
+      const def = CARD_DEFS[info.kind] || {};
+      const type = info.type || def.type || 'basic';
+      const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[type] || '';
+      const weaponRange = def.slot === EQUIP_SLOT.WEAPON
+        ? `攻击范围 ${def.dynamicRange ? 'X' : (info.range ?? def.range)}`
+        : '';
+      const basicRole = type === 'basic'
+        ? ({ sha: '杀', shan: '闪', tao: '桃', jiu: '酒' }[def.as || info.as || info.kind] || '')
+        : '';
+      const card = el('div', { class: `card-face fx-use-card type-${type} ${info.red ? 'red' : 'black'}` }, [
+        el('div', { class: 'cf-top' }, [
+          el('span', { class: 'cf-rank', text: rankLabel(info.number) }),
+          el('span', { class: 'cf-suit', text: SUIT_SYMBOL[info.suit] || '' }),
+        ]),
+        basicRole ? el('div', { class: 'cf-basic-role', text: basicRole }) : null,
+        el('div', { class: 'cf-name', text: info.name }),
+        el('div', { class: 'cf-type', text: weaponRange ? weaponRange.replace('攻击范围 ', '范围 ') : typeLabel }),
+      ]);
+      return el('div', { class: 'fx-use-token', style: { '--accent': kindAccent(type) } }, [
+        el('div', { class: 'fxc-actor', text: `${context.actorName || '玩家'} · ${context.verb || '使用'}` }),
+        card,
+        context.targetLabel ? el('div', { class: 'fxc-targets', text: `→ ${context.targetLabel}` }) : null,
+      ]);
+    }
+
     const corner = [info.number ? rankLabel(info.number) : '', info.suit ? SUIT_SYMBOL[info.suit] || '' : ''].join('');
-    return el('div', { class: `fx-card ${context ? 'fx-use-card' : ''} ${info.red ? 'red' : 'black'}`, style: { '--accent': kindAccent(info.type) } }, [
-      context ? el('div', { class: 'fxc-actor', text: `${context.actorName || '玩家'} · ${context.verb || '使用'}` }) : null,
+    return el('div', { class: `fx-card ${info.red ? 'red' : 'black'}`, style: { '--accent': kindAccent(info.type) } }, [
       corner ? el('div', { class: 'fxc-corner', text: corner }) : null,
       el('div', { class: 'fxc-name', text: info.name }),
       info.suit ? el('div', { class: 'fxc-suit', text: SUIT_SYMBOL[info.suit] || '' }) : null,
-      context?.targetLabel ? el('div', { class: 'fxc-targets', text: `→ ${context.targetLabel}` }) : null,
     ]);
   }
 
@@ -67,7 +91,8 @@ export class FxLayer {
 
     const token = this._token(info, context);
     this.root.appendChild(token);
-    const tx = (point) => `translate(${point.x - USE_W / 2}px, ${point.y - USE_H / 2}px)`;
+    const tokenRect = token.getBoundingClientRect();
+    const tx = (point) => `translate(${point.x - tokenRect.width / 2}px, ${point.y - tokenRect.height / 2}px)`;
     this._play(token, [
       { transform: `${tx(from)} scale(.32) rotate(-9deg)`, opacity: 0, filter: 'brightness(1.7)' },
       { transform: `${tx(reveal)} scale(1.12) rotate(0deg)`, opacity: 1, filter: 'brightness(1.14)', offset: .2 },

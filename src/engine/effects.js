@@ -188,6 +188,9 @@ export async function resolveCard(engine, ctx) {
         card: ctx.card,
         dealtDamage: damageFrame.dealtDamage,
       });
+      // 战马的“置入弃牌堆时”优先于用牌后的巨龙之魂奖励结算。
+      if (engine.resolvePendingBattlehorses) await engine.resolvePendingBattlehorses();
+      await fireDragonsSoul(engine, ctx.user);
     }
   }
   finally {
@@ -238,6 +241,8 @@ async function settleShanResponse(engine, player, card) {
     });
 
     if (engine.turnOwner === player) {
+      if (engine.resolvePendingBattlehorses) await engine.resolvePendingBattlehorses();
+      await fireDragonsSoul(engine, player);
       await fireRatTrap(engine, player);
       await fireSarathas(engine, player, card);
     }
@@ -1275,7 +1280,14 @@ async function resolveShaOn(engine, user, target, card) {
   const bonus = await triggerSkill(engine, 'shaDamage', { user, target, base: dmg, card });
   if (typeof bonus === 'number') dmg = bonus;
   if (unblockable) engine.log(`【${card.name}】无法被闪避！`, 'bad');
-  await engine.dealDamage({ source: user, target, amount: dmg, nature: card.nature || 'normal', card });
+  await engine.dealDamage({
+    source: user,
+    target,
+    amount: dmg,
+    nature: card.nature || 'normal',
+    card,
+    normalDamage: !unblockable,
+  });
   // 寒冰箭等：命中后冻结
   if (def.freeze && target.alive) engine.freezeHand(target, def.freeze);
   // 世界树嫩枝（任意伤害后回血）在 game.dealDamage 中统一处理
@@ -1570,6 +1582,38 @@ export async function nullified(engine, card, byUser, targetPlayer, options = {}
     }
   }
   return await nullifyChain(engine, { card, byUser, targetPlayer, ...options });
+}
+
+// 巨龙之魂：自己回合每累计使用3张牌，可从弃牌堆获得1张并冻结。
+async function fireDragonsSoul(engine, user) {
+  if (engine.over || !user?.alive || engine.turnOwner !== user) return;
+  const weapon = weaponsOf(user).find((w) => CARD_DEFS[w.kind]?.discardRewardEvery);
+  if (!weapon) return;
+  const every = Math.max(1, CARD_DEFS[weapon.kind].discardRewardEvery);
+  const earned = Math.floor((user.flags?.cardsUsed || 0) / every);
+  const resolved = user.flags?.dragonsSoulRewards || 0;
+  if (earned <= resolved) return;
+  user.flags.dragonsSoulRewards = earned; // 无论是否发动，每个档位只询问一次
+  if (!engine.discard?.length) return;
+
+  const choices = [...engine.discard].reverse();
+  const response = await engine.ask(user, {
+    type: REQ.CHOOSE_OPTION,
+    kind: 'dragons_soul',
+    title: '巨龙之魂：获得弃牌堆中1张牌并使其冻结',
+    options: [
+      ...choices.map((card) => ({ value: card.id, label: `获得【${card.name}】并冻结`, card })),
+      { value: 'no', label: '不发动' },
+    ],
+  });
+  const chosen = choices.find((card) => card.id === response?.value);
+  if (!chosen || !engine.discard.includes(chosen)) return;
+  removeFrom(engine.discard, chosen);
+  clearCardFreeze(chosen);
+  if (!hasSkill(user, 'binhuo')) chosen.frozen = true;
+  user.hand.push(chosen);
+  engine.log(`${user.name}发动【巨龙之魂】，获得弃牌堆中的【${chosen.name}】${chosen.frozen ? '（已冻结）' : ''}。`, 'good');
+  engine.changed();
 }
 
 async function nullifyChain(engine, { card, byUser, targetPlayer, timing }) {

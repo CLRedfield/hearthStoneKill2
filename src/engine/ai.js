@@ -24,6 +24,7 @@ export function cardValue(c) {
     bagua: 7, renwang: 7, chitu: 6, dawan: 5, zhuahuang: 6, chilu: 5, jueying: 5, zixing: 5,
     jinguang: 8, huanxiang: 5, xuese: 5,
     shangguhaojiao: 8, salatasi: 7, chaoxizhishi: 8, chaoxizhijie: 7,
+    dragonsoul: 8, warhorse: 8, thunderelephant: 7, sworddragon: 7,
   };
   return base[c.kind] ?? 4;
 }
@@ -66,6 +67,9 @@ export class AIAgent {
     // 反间：选花色——猜测，偏向黑桃（杀多为黑）
     if (req.title?.includes('选择一种花色')) {
       return { value: SUIT.SPADE };
+    }
+    if (req.kind === 'battlehorse_recycle') {
+      return { value: discardableCards(player).length ? 'yes' : 'no' };
     }
     // 带 card 的选项（五谷丰登）：取价值最高
     if (options[0]?.card) {
@@ -336,9 +340,15 @@ export class AIAgent {
       if (!c.slot || c.frozen) continue;
       // 万千箴言剑等：仅能作为本回合打出的第7张牌使用（恰好用过6张时才可装备）
       if (CARD_DEFS[c.kind]?.seventhOnly && (player.flags?.cardsUsed || 0) !== 6) continue;
+      const def = CARD_DEFS[c.kind] || {};
       const slotFree = !player.equips[c.slot];
       const dualFree = gujia && (c.slot === EQUIP_SLOT.WEAPON || c.slot === EQUIP_SLOT.ARMOR) && player.equips[c.slot] && !(player.equips2 && player.equips2[c.slot]);
-      if (slotFree || dualFree) return { type: 'play', card: c, targets: [] };
+      const horseSlots = [EQUIP_SLOT.OFFENSE_HORSE, EQUIP_SLOT.DEFENSE_HORSE];
+      const replacesHorse = horseSlots.includes(c.slot) && (
+        def.dualHorse
+        || horseSlots.some((slot) => CARD_DEFS[player.equips[slot]?.kind]?.dualHorse)
+      );
+      if (slotFree || dualFree || replacesHorse) return { type: 'play', card: c, targets: [] };
     }
 
     // 1.5) 设置奥秘（炉石杀）：威胁越大越倾向铺防御性奥秘，且每名角色已有的奥秘不重复

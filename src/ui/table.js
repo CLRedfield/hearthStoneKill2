@@ -86,6 +86,7 @@ export class GameUI {
       verb: event.verb || '使用',
       targetLabel: visibleTargets.map((target) => target.name).join('、'),
       stamp: Date.now(),
+      animate: true,
     };
     this.recentUses.set(event.userId, entry);
     clearTimeout(this._recentUseTimers.get(event.userId));
@@ -159,6 +160,10 @@ export class GameUI {
       this._renderActionBar(snap),
       this._renderLogPanel(snap),
     ];
+    // A recent-use entry can survive several full-table renders. Consume its
+    // entrance animation only after a complete frame has been built so those
+    // later renders do not restart the flash.
+    this.recentUses.forEach((entry) => { entry.animate = false; });
     clear(wrap);
     nextFrame.forEach((node) => wrap.appendChild(node));
     // 恢复手牌滚动位置
@@ -429,6 +434,7 @@ export class GameUI {
     const equips = el('div', { class: 'p-equips' });
     const mkEquipChip = (e, slot, extra = false) => {
       const def = CARD_DEFS[e.kind] || {};
+      const slotLabel = def.slotName || EQUIP_SLOT_NAME[slot];
       const printedRange = slot === EQUIP_SLOT.WEAPON
         ? (def.dynamicRange ? 'X' : (e.range ?? def.range))
         : null;
@@ -440,14 +446,14 @@ export class GameUI {
         ? `范围 ${printedRange}${currentRange != null ? `→${currentRange}` : ''}`
         : '';
       const chip = el('div', { class: `equip-chip ${e.red ? 'red' : 'black'} ${isMe && this._canSelectTableDiscard() ? 'discard-selectable' : ''} ${this.discardSel.has(e.id) ? 'discard-selected' : ''}` }, [
-        el('span', { class: 'eq-tag', text: (extra ? '骨架·' : '') + EQUIP_SLOT_NAME[slot] }),
+        el('span', { class: 'eq-tag', text: (extra ? '骨架·' : '') + slotLabel }),
         el('span', { class: 'eq-name', text: e.name }),
         compactRange ? el('span', { class: 'eq-range', text: compactRange }) : null,
         el('span', { class: 'eq-suit', text: `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}` }),
       ]);
       attachTip(chip, {
         title: e.name,
-        sub: [EQUIP_SLOT_NAME[slot], rangeLabel, `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}`].filter(Boolean).join(' · '),
+        sub: [slotLabel, rangeLabel, `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}`].filter(Boolean).join(' · '),
         desc: def.desc || '',
         accent: '#2e8b57',
       });
@@ -506,7 +512,7 @@ export class GameUI {
     const recentUse = this.recentUses.get(p.id);
     const recentType = recentUse?.card?.type || CARD_DEFS[recentUse?.card?.kind]?.type || 'basic';
     const recent = recentUse ? el('div', {
-      class: `p-recent-use type-${recentType} ${recentUse.card.red ? 'red' : 'black'}`,
+      class: `p-recent-use type-${recentType} ${recentUse.card.red ? 'red' : 'black'} ${recentUse.animate ? 'is-new' : ''}`,
       title: `${p.name}${recentUse.verb}【${recentUse.card.name}】${recentUse.targetLabel ? `，目标：${recentUse.targetLabel}` : ''}`,
     }, [
       el('span', { class: 'p-recent-kicker', text: `刚刚${recentUse.verb}` }),

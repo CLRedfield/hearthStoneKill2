@@ -31,6 +31,7 @@ export class GameEngine {
     this.pace = config.pace ?? 650;    // 动画停顿(ms)
     this.turnOwner = null;             // 当前回合归属（暗影步用）
     this.turnRecallable = [];          // 当前回合该角色进入弃牌堆、可被暗影步收回的牌
+    this.pendingBattlehorses = [];     // 战马进入弃牌堆后，在当前结算完成时询问是否重新装备
   }
 
   // ---------- 事件 ----------
@@ -89,6 +90,8 @@ export class GameEngine {
     let d = this.seatRingDistance(from, to);
     if (to.equips[EQUIP_SLOT.DEFENSE_HORSE]) d += 1;  // 目标 +1 马
     if (from.equips[EQUIP_SLOT.OFFENSE_HORSE]) d -= 1; // 自己 -1 马
+    // 战马只占用一个装备栏，但同时具有 +1 / -1 坐骑效果。
+    if (CARD_DEFS[from.equips[EQUIP_SLOT.DEFENSE_HORSE]?.kind]?.dualHorse) d -= 1;
     return Math.max(1, d);
   }
 
@@ -341,8 +344,12 @@ export class GameEngine {
       this.changed();
       return;
     }
-    this.discard.push(...reals);
-    this.fx('discard', { cards: reals.map(fxCard) });
+    const toPile = [];
+    for (const card of reals) {
+      if (!this._routeLeavePlay(card, actor)) toPile.push(card);
+    }
+    this.discard.push(...toPile);
+    this.fx('discard', { cards: toPile.map(fxCard) });
     this.changed();
   }
 
@@ -361,7 +368,52 @@ export class GameEngine {
       if (owner && owner.alive) { this.log(`${owner.name} 的【${card.name}】进入弃牌堆，摸一张牌。`, 'good'); this.drawCards(owner, 1); }
       return true;
     }
+    if (d.reEquipFromDiscard && owner) {
+      if (!this.pendingBattlehorses.some((entry) => entry.card === card)) {
+        this.pendingBattlehorses.push({ card, ownerId: owner.id });
+      }
+      return false; // 先正常置入弃牌堆，当前结算完成后再询问是否拉回装备区
+    }
     return false;
+  }
+
+  // 战马的可选回场结算。弃牌移动本身保持同步，交互等到当前卡牌/技能结算完成后执行。
+  async resolvePendingBattlehorses() {
+    if (this._resolvingBattlehorses || !this.pendingBattlehorses.length) return;
+    this._resolvingBattlehorses = true;
+    const batch = this.pendingBattlehorses.splice(0);
+    try {
+      for (const { card, ownerId } of batch) {
+        const owner = this.playerById(ownerId);
+        if (!owner?.alive || !this.discard.includes(card)) continue;
+        const costs = discardableCards(owner);
+        if (!costs.length) continue;
+        const response = await this.ask(owner, {
+          type: REQ.CHOOSE_OPTION,
+          kind: 'battlehorse_recycle',
+          title: '战马：是否弃掉1张牌并将战马重新置入装备区？',
+          options: [{ value: 'yes', label: '弃掉1张牌并重新装备' }, { value: 'no', label: '不发动' }],
+        });
+        if (response?.value !== 'yes' || !this.discard.includes(card)) continue;
+        const discardResponse = await this.ask(owner, {
+          type: REQ.DISCARD_CARDS,
+          count: 1,
+          from: 'all',
+          title: '战马：弃置1张牌',
+        });
+        const selected = (discardResponse?.cards || [])
+          .map((ref) => typeof ref === 'string' ? discardableCards(owner).find((c) => c.id === ref) : ref)
+          .find((c) => discardableCards(owner).includes(c)) || discardableCards(owner)[0];
+        if (!selected) continue;
+        this.discardCards(owner, [selected]);
+        if (!this.discard.includes(card)) continue;
+        removeFrom(this.discard, card);
+        this.equip(owner, card);
+        this.log(`${owner.name}弃掉【${selected.name}】，将【战马】重新置入装备区。`, 'good');
+      }
+    } finally {
+      this._resolvingBattlehorses = false;
+    }
   }
 
   // 从玩家手牌/装备/判定区/奥秘区移除指定实体牌
@@ -450,6 +502,26 @@ export class GameEngine {
     if (d.immuneInstances) card.immuneCharges = d.immuneInstances;
     if (d.breakAfterDamage) card.damageTaken = 0;
     if (d.immuneNonDiamondSha) player.iceHeartImmune = true; // 凝冰护盾：装备即获得对红桃【杀】的免疫（持续到你下回合开始）
+    const horseSlots = [EQUIP_SLOT.OFFENSE_HORSE, EQUIP_SLOT.DEFENSE_HORSE];
+    if (horseSlots.includes(slot)) {
+      if (d.dualHorse) {
+        // 战马同时占据“只能拥有这一匹坐骑”的逻辑位：装备时弃掉现有两匹坐骑。
+        for (const horseSlot of horseSlots) {
+          const oldHorse = player.equips[horseSlot];
+          if (!oldHorse) continue;
+          player.equips[horseSlot] = null;
+          if (!this._routeLeavePlay(oldHorse, player)) this.discard.push(oldHorse);
+        }
+      } else {
+        // 战马在场时无法并存其他坐骑；改装普通坐骑会先将战马置入弃牌堆。
+        const battlehorseSlot = horseSlots.find((horseSlot) => CARD_DEFS[player.equips[horseSlot]?.kind]?.dualHorse);
+        if (battlehorseSlot) {
+          const battlehorse = player.equips[battlehorseSlot];
+          player.equips[battlehorseSlot] = null;
+          if (!this._routeLeavePlay(battlehorse, player)) this.discard.push(battlehorse);
+        }
+      }
+    }
     // 骨架（玛洛加尔）：武器/防具可装2件，先填主栏再填副栏，满则替换主栏
     const dual = hasSkill(player, 'gujia') && (slot === EQUIP_SLOT.WEAPON || slot === EQUIP_SLOT.ARMOR);
     if (dual && player.equips[slot] && !player.equips2[slot]) {
@@ -892,6 +964,7 @@ export class GameEngine {
       } catch (e) {
         console.error('[play move]', e);
       }
+      await this.resolvePendingBattlehorses();
       await this.pause(120);
     }
   }
@@ -1008,6 +1081,7 @@ export class GameEngine {
       this.discardCards(player, cards);
       player.flags.lastDiscardCount = cards.length;
     }
+    await this.resolvePendingBattlehorses();
     await this.pause(200);
   }
 
@@ -1027,6 +1101,7 @@ export class GameEngine {
     delete player.flags.immuneAllTurn; // 命运之轮：免疫只持续到本回合结束
     await triggerSkill(this, 'endPhase', { player });
     await triggerSkill(this, 'anyEndPhase', { turnPlayer: player });
+    await this.resolvePendingBattlehorses();
     await this.pause(200);
   }
 
@@ -1066,7 +1141,7 @@ export class GameEngine {
   }
 
   // 造成伤害的核心流程
-  async dealDamage({ source, target, amount = 1, nature = 'normal', card = null, dodgeable = false }) {
+  async dealDamage({ source, target, amount = 1, nature = 'normal', card = null, dodgeable = false, normalDamage = null }) {
     if (!target.alive || amount <= 0) return;
     // 冰火（晨拥）：你对有装备的角色造成的伤害+1（对任意伤害生效）
     if (source && source !== target && hasSkill(source, 'binhuo') && Object.values(target.equips).some(Boolean)) amount += 1;
@@ -1108,6 +1183,9 @@ export class GameEngine {
       await this.pause(280);
       return;
     }
+    // 雷象 / 剑龙：弃掉坐骑免疫一次普通伤害。【杀】已在外层处理闪避，故用 normalDamage 显式传递其伤害性质。
+    const maySacrificeMount = normalDamage == null ? dodgeable : normalDamage;
+    if (maySacrificeMount && await this._offerMountImmunity(target)) return;
     // 普通伤害：目标可打出【闪】抵消（强制伤害不设 dodgeable，直接命中；【杀】的闪已在杀流程处理，不重复）
     if (dodgeable && target.alive && amount > 0) {
       const dodge = await getOneDodge(this, target, { source, card });
@@ -1431,7 +1509,11 @@ export class GameEngine {
         source.hand.forEach(clearCardFreeze);
         source.hand = [];
         source.equips = { weapon: null, armor: null, plus: null, minus: null };
-        this.discard.push(...lost);
+        const penaltyDiscard = [];
+        for (const card of lost) {
+          if (!this._routeLeavePlay(card, source)) penaltyDiscard.push(card);
+        }
+        this.discard.push(...penaltyDiscard);
         this.log(`主公错杀忠臣，弃置所有手牌及装备！`, 'bad');
         this.changed();
       }
@@ -1562,6 +1644,27 @@ export class GameEngine {
     }
     if (this.mode === MODE.DUEL2V2) return a.team === b.team;
     return false;
+  }
+
+  async _offerMountImmunity(target) {
+    const horses = [target.equips[EQUIP_SLOT.OFFENSE_HORSE], target.equips[EQUIP_SLOT.DEFENSE_HORSE]]
+      .filter((card, index, all) => card && all.indexOf(card) === index && CARD_DEFS[card.kind]?.sacrificeAvoidNormal);
+    if (!horses.length) return false;
+    const response = await this.ask(target, {
+      type: REQ.CHOOSE_OPTION,
+      kind: 'mount_immunity',
+      title: '坐骑：是否弃掉坐骑并免疫这次普通伤害？',
+      options: [
+        ...horses.map((horse) => ({ value: horse.id, label: `弃掉【${horse.name}】并免疫`, card: horse })),
+        { value: 'no', label: '不发动' },
+      ],
+    });
+    const horse = horses.find((candidate) => candidate.id === response?.value);
+    if (!horse || !discardableCards(target).includes(horse)) return false;
+    this.discardCards(target, [horse]);
+    this.log(`${target.name}弃掉【${horse.name}】，免疫了这次普通伤害。`, 'good');
+    await this.pause(280);
+    return true;
   }
 
   // ---------- 快照（渲染 / 联机广播） ----------
