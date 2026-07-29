@@ -1,6 +1,6 @@
 // ====================== 牌桌 UI + 人类玩家 Agent ======================
 import { el, clear, mount } from './dom.js';
-import { openOverlay, chooseDialog, chooseGeneralDialog, miniCardNode, toast } from './prompts.js';
+import { openOverlay, chooseDialog, chooseGeneralDialog, chooseGeneralSkillDialog, miniCardNode, toast } from './prompts.js';
 import {
   PHASE, PHASE_NAME, IDENTITY_NAME, FACTION_NAME, FACTION_COLOR, SUIT_SYMBOL,
   EQUIP_SLOT, EQUIP_SLOT_NAME, MODE, REQ, rankLabel,
@@ -42,6 +42,8 @@ export class GameUI {
     this.discardSel = new Set();
     this.zhangba = null; // 丈八蛇矛：{ context:'play'|'respond', sel:[ids] }
     this.fx = null;
+    this.recentUses = new Map();
+    this._recentUseTimers = new Map();
     // 移动端默认收起战报，减少左上角遮挡（仍可点开）
     this.logCollapsed = typeof window !== 'undefined' && window.innerWidth <= 640;
   }
@@ -53,6 +55,11 @@ export class GameUI {
     this._goOverlay = null;
     this._unsubs.forEach((fn) => { try { fn(); } catch (e) {} });
     this._unsubs = [];
+    this._recentUseTimers.forEach((timer) => clearTimeout(timer));
+    this._recentUseTimers.clear();
+    this.recentUses.clear();
+    this.fx?.destroy();
+    this.fx = null;
     if (this.pending) { this.pending.resolve(null); this.pending = null; }
   }
   mountInto(rootEl) {
@@ -71,19 +78,65 @@ export class GameUI {
   _panelEl(id) { return this.root?.querySelector(`[data-pid="${id}"]`); }
   _discardEl() { return this.root?.querySelector('#center-discard'); }
 
+  _rememberUse(event, actor, targets) {
+    if (!event.userId || !event.card) return;
+    const visibleTargets = targets.filter((target) => target.id !== event.userId);
+    const entry = {
+      card: event.card,
+      verb: event.verb || '使用',
+      targetLabel: visibleTargets.map((target) => target.name).join('、'),
+      stamp: Date.now(),
+    };
+    this.recentUses.set(event.userId, entry);
+    clearTimeout(this._recentUseTimers.get(event.userId));
+    this._recentUseTimers.set(event.userId, setTimeout(() => {
+      if (this.recentUses.get(event.userId)?.stamp !== entry.stamp) return;
+      this.recentUses.delete(event.userId);
+      this._recentUseTimers.delete(event.userId);
+      if (this.root?.isConnected) this.render();
+    }, 4200));
+    if (this.root?.isConnected) this.render();
+  }
+
   _onFx(e) {
     if (!this.fx) return;
     if (e.name === 'use') {
+      const actor = this.engine.playerById(e.userId);
+      const targetPlayers = (e.targetIds || []).map((id) => this.engine.playerById(id)).filter(Boolean);
+      this._rememberUse(e, actor, targetPlayers);
       const fromEl = this._panelEl(e.userId);
       const toEls = (e.targetIds || []).map((id) => this._panelEl(id)).filter(Boolean);
-      this.fx.flyUse(fromEl, toEls, e.card || {});
+      const visibleTargets = targetPlayers.filter((target) => target.id !== e.userId);
+      this.fx.flyUse(fromEl, toEls, e.card || {}, {
+        actorName: actor?.name || '玩家',
+        verb: e.verb || '使用',
+        targetLabel: visibleTargets.map((target) => target.name).join('、'),
+      });
     } else if (e.name === 'discard') {
       this.fx.discardFade(this._discardEl(), e.cards || []);
     } else if (e.name === 'heal') {
       this.fx.heal(this._panelEl(e.targetId), e.amount || 1);
+    } else if (e.name === 'judge_pending') {
+      const p = this.engine.playerById(e.playerId);
+      this.fx.judgePending(
+        this._panelEl(e.playerId), e.delayedCard || {}, p?.name || '',
+        e.counterName || '无懈可击', e.responseAllowed !== false,
+      );
     } else if (e.name === 'judge') {
       const p = this.engine.snapshot ? this.engine.snapshot().players?.find((x) => x.id === e.playerId) : null;
-      this.fx.judge(e.card || {}, p?.name || '');
+      this.fx.judge(e.card || {}, p?.name || '', {
+        reason: e.reason,
+        sourceCard: e.sourceCard,
+        rewritten: !!e.rewritten,
+      });
+    } else if (e.name === 'judge_result') {
+      const p = this.engine.playerById(e.playerId);
+      this.fx.judgeResult(e.card || {}, p?.name || '', e.delayedCard || {}, e.result || {});
+    } else if (e.name === 'judge_cancelled') {
+      const p = this.engine.playerById(e.playerId);
+      this.fx.judgeCancelled(
+        this._panelEl(e.playerId), e.delayedCard || {}, p?.name || '', e.counterName || '无懈可击',
+      );
     } else if (e.name === 'secret') {
       this.fx.secret(this._panelEl(e.playerId), e.label || '奥秘');
     }
@@ -375,12 +428,29 @@ export class GameUI {
     // 装备区
     const equips = el('div', { class: 'p-equips' });
     const mkEquipChip = (e, slot, extra = false) => {
+      const def = CARD_DEFS[e.kind] || {};
+      const printedRange = slot === EQUIP_SLOT.WEAPON
+        ? (def.dynamicRange ? 'X' : (e.range ?? def.range))
+        : null;
+      const currentRange = def.dynamicRange ? Math.max(1, p.flags?.drawnThisTurn || 0) : null;
+      const rangeLabel = printedRange != null
+        ? `攻击范围 ${printedRange}${currentRange != null ? `（当前 ${currentRange}）` : ''}`
+        : '';
+      const compactRange = printedRange != null
+        ? `范围 ${printedRange}${currentRange != null ? `→${currentRange}` : ''}`
+        : '';
       const chip = el('div', { class: `equip-chip ${e.red ? 'red' : 'black'} ${isMe && this._canSelectTableDiscard() ? 'discard-selectable' : ''} ${this.discardSel.has(e.id) ? 'discard-selected' : ''}` }, [
         el('span', { class: 'eq-tag', text: (extra ? '骨架·' : '') + EQUIP_SLOT_NAME[slot] }),
-        el('span', { text: e.name }),
+        el('span', { class: 'eq-name', text: e.name }),
+        compactRange ? el('span', { class: 'eq-range', text: compactRange }) : null,
         el('span', { class: 'eq-suit', text: `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}` }),
       ]);
-      attachTip(chip, { title: e.name, sub: `${EQUIP_SLOT_NAME[slot]} · ${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}`, desc: CARD_DEFS[e.kind]?.desc || '', accent: '#2e8b57' });
+      attachTip(chip, {
+        title: e.name,
+        sub: [EQUIP_SLOT_NAME[slot], rangeLabel, `${rankLabel(e.number)}${SUIT_SYMBOL[e.suit]}`].filter(Boolean).join(' · '),
+        desc: def.desc || '',
+        accent: '#2e8b57',
+      });
       equips.appendChild(chip);
       if (isMe && this._canSelectTableDiscard()) chip.onclick = (event) => { event.stopPropagation(); this._toggleDiscardCard(e); };
     };
@@ -433,6 +503,16 @@ export class GameUI {
     });
 
     const resources = this._renderResources(p);
+    const recentUse = this.recentUses.get(p.id);
+    const recentType = recentUse?.card?.type || CARD_DEFS[recentUse?.card?.kind]?.type || 'basic';
+    const recent = recentUse ? el('div', {
+      class: `p-recent-use type-${recentType} ${recentUse.card.red ? 'red' : 'black'}`,
+      title: `${p.name}${recentUse.verb}【${recentUse.card.name}】${recentUse.targetLabel ? `，目标：${recentUse.targetLabel}` : ''}`,
+    }, [
+      el('span', { class: 'p-recent-kicker', text: `刚刚${recentUse.verb}` }),
+      el('strong', { class: 'p-recent-card', text: recentUse.card.name }),
+      recentUse.targetLabel ? el('span', { class: 'p-recent-target', text: `→ ${recentUse.targetLabel}` }) : null,
+    ]) : null;
 
     const info = el('div', { class: 'p-info' }, [
       el('div', { class: 'p-name-row' }, [
@@ -448,7 +528,7 @@ export class GameUI {
       class: cls, dataset: { pid: p.id },
       'aria-pressed': selected ? 'true' : 'false',
       onclick: () => { if (selectable) this._onTargetClick(p.id); },
-    }, [portrait, info, resources, skills, equips, judge, tokens]);
+    }, [portrait, info, recent, resources, skills, equips, judge, tokens]);
 
     if (!p.alive) node.appendChild(el('div', { class: 'dead-overlay', text: '阵亡' }));
     if (selected) {
@@ -487,6 +567,9 @@ export class GameUI {
   _cardFace(card, { mini = false, clickable = false, dim = false, selected = false, onClick } = {}) {
     const def = CARD_DEFS[card.kind] || {};
     const typeLabel = { equip: '装备', trick: '锦囊', delayed: '延时', basic: '基本', secret: '奥秘' }[def.type] || '';
+    const weaponRange = def.slot === EQUIP_SLOT.WEAPON
+      ? `攻击范围 ${def.dynamicRange ? 'X' : (card.range ?? def.range)}`
+      : '';
     const basicRole = def.type === 'basic'
       ? ({ sha: '\u6740', shan: '\u95ea', tao: '\u6843', jiu: '\u9152' }[def.as || card.as || card.kind] || '')
       : '';
@@ -499,13 +582,13 @@ export class GameUI {
       ]),
       basicRole ? el('div', { class: 'cf-basic-role', text: basicRole }) : null,
       el('div', { class: 'cf-name', text: card.name }),
-      el('div', { class: 'cf-type', text: typeLabel }),
+      el('div', { class: 'cf-type', text: weaponRange ? weaponRange.replace('攻击范围 ', '范围 ') : typeLabel }),
       card.frozen ? el('div', { class: 'cf-frozen', text: '❄' }) : null,
     ]);
     // 精美介绍：桌面端悬停、移动端单击即显示（替代原生 title 长按）。
     // 先绑定提示再绑定选牌点击：选牌会同步 render() 把本节点替换掉，故须在替换前完成提示定位。
     const accent = { equip: '#2e8b57', trick: '#8a5bba', delayed: '#d08a3a', secret: '#b186ff' }[def.type] || 'var(--gold)';
-    const sub = [typeLabel, `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}`, card.frozen ? '· 已冻结' : ''].filter(Boolean).join(' · ');
+    const sub = [typeLabel, weaponRange, `${rankLabel(card.number)}${SUIT_SYMBOL[card.suit] || ''}`, card.frozen ? '已冻结' : ''].filter(Boolean).join(' · ');
     attachTip(node, { title: card.name, sub, desc: def.desc || '', accent });
     if (onClick) node.addEventListener('click', onClick);
     return node;
@@ -1301,6 +1384,10 @@ export class HumanAgent {
         if (req.kind === 'general') {
           const gid = await chooseGeneralDialog(req.options.map((o) => o.general));
           return { value: gid };
+        }
+        if (req.kind === 'general_skill') {
+          const value = await chooseGeneralSkillDialog(req.title, req.options);
+          return { value };
         }
         const value = await chooseDialog(req.title || '请选择', req.options.map((o) => ({
           value: o.value, card: o.card, player: o.player,

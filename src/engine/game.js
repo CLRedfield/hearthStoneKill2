@@ -7,7 +7,7 @@ import { GENERAL_LIST, getGeneral, generalPool } from './generals.js';
 import {
   Emitter, shuffle, sleep, clamp, removeFrom, removeFromHand, clearCardFreeze, sample, uid,
 } from '../util.js';
-import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge } from './effects.js';
+import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge, nullified } from './effects.js';
 import { SKILLS, triggerSkill, hasSkill } from './skills.js';
 import { discardableCards } from './zones.js';
 
@@ -591,16 +591,45 @@ export class GameEngine {
 
   // 解冻一名角色的全部冻结手牌（含奥数抉择），仅在其回合末弃牌前调用。
   async _thawPlayer(player) {
-    // 奥数（晨拥）：被其冻结的牌解冻时，拥有者抉择 ①晨拥摸2 ②弃该牌给晨拥1张
+    // 奥数（晨拥）：被其冻结的牌解冻时，拥有者抉择 ①晨拥摸2 ②弃该牌，再选择1张手牌交给晨拥
     for (const c of player.hand.filter((x) => x.frozen && x.frozenBy)) {
       const freezer = this.playerById(c.frozenBy); c.frozenBy = null;
       if (!freezer || !freezer.alive || freezer === player) continue;
       const agent = this.agentOf(player);
       let pick = 'draw2';
       if (agent?.kind === 'ai') pick = player.hand.length <= 2 ? 'draw2' : 'give';
-      else { const r = await this.ask(player, { type: REQ.CHOOSE_OPTION, title: `奥数（${freezer.name}的冻结牌解冻）：①使其摸2张 ②弃此牌并给其1张`, options: [{ value: 'draw2', label: `${freezer.name} 摸2张` }, { value: 'give', label: '弃此牌并给其1张' }] }); pick = r?.value || 'draw2'; }
+      else {
+        const options = [{ value: 'draw2', label: `${freezer.name} 摸2张` }];
+        if (player.hand.some((card) => card !== c)) options.push({ value: 'give', label: '弃掉此牌，再选择1张手牌交给其' });
+        const r = await this.ask(player, {
+          type: REQ.CHOOSE_OPTION,
+          title: `奥数（${freezer.name}冻结的牌解冻）：请选择一项`,
+          options,
+        });
+        pick = r?.value || 'draw2';
+      }
       if (pick === 'draw2') { this.drawCards(freezer, 2); this.log(`${freezer.name} 发动【奥数】摸两张牌。`, 'good'); }
-      else { removeFromHand(player.hand, c); freezer.hand.push(c); this.log(`${player.name} 弃置该牌交给 ${freezer.name}（奥数）。`); this.changed(); }
+      else {
+        this.discardCards(player, [c]);
+        if (!player.hand.length) continue;
+        const r = await this.ask(player, {
+          type: REQ.GUANXING,
+          mode: 'select_cards',
+          cards: [...player.hand],
+          minCount: 1,
+          maxCount: 1,
+          title: `奥数：选择交给 ${freezer.name} 的一张手牌`,
+          selectedLabel: `交给 ${freezer.name} 的牌`,
+          availableLabel: '你的手牌',
+          confirmLabel: '确认交出',
+        });
+        const selectedId = Array.isArray(r?.selected) ? r.selected[0] : null;
+        const given = player.hand.find((card) => card.id === selectedId) || player.hand[0];
+        removeFromHand(player.hand, given);
+        freezer.hand.push(given);
+        this.log(`${player.name} 弃掉被冻结的牌，并交给 ${freezer.name} 一张手牌（奥数）。`);
+        this.changed();
+      }
     }
     let thawed = 0;
     player.hand.forEach((c) => { if (c.frozen) { clearCardFreeze(c); thawed++; } });
@@ -647,16 +676,53 @@ export class GameEngine {
     const zone = [...player.judge].reverse();
     for (const dcard of zone) {
       if (!player.judge.includes(dcard)) continue;
-      removeFrom(player.judge, dcard);
       await this._resolveDelayed(player, dcard);
       if (this.over || !player.alive || this.skipToEnd) return;
     }
   }
 
   async _resolveDelayed(player, dcard) {
-    this.log(`${player.name} 判定【${dcard.name}】...`);
-    const jr = await this.doJudge(player, `${dcard.name}判定`);
+    const sourcePlayer = this.playerById(dcard.delayedBy) || player;
+    const counterName = this.config.pack === 'hs' ? '法术反制' : '无懈可击';
+    const delayedInfo = fxCard(dcard);
+    this.log(
+      dcard._noResponse
+        ? `${player.name} 的【${dcard.name}】即将判定（无法响应）。`
+        : `${player.name} 的【${dcard.name}】即将判定，可使用【${counterName}】响应。`,
+      'play',
+    );
+    this.fx('judge_pending', {
+      playerId: player.id,
+      delayedCard: delayedInfo,
+      counterName,
+      responseAllowed: !dcard._noResponse,
+    });
+    await this.pause(Math.min(this.pace, 420));
+
+    // 延时锦囊直到此刻才开启反制链；放置时不再提前询问。
+    if (await nullified(this, dcard, sourcePlayer, player, { timing: 'judge' })) {
+      removeFrom(player.judge, dcard);
+      this.discard.push(dcard);
+      this.log(`${player.name} 的【${dcard.name}】判定被取消。`, 'good');
+      this.fx('judge_cancelled', { playerId: player.id, delayedCard: delayedInfo, counterName });
+      this.changed();
+      await this.pause(Math.min(this.pace, 650));
+      return;
+    }
+
+    removeFrom(player.judge, dcard);
+    this.changed();
+    this.log(`${player.name} 开始判定【${dcard.name}】...`);
+    const jr = await this.doJudge(player, `${dcard.name}判定`, { sourceCard: delayedInfo });
     const beh = CARD_DEFS[dcard.kind]?.behaves || dcard.kind;
+    const result = delayedJudgeResult(dcard, jr);
+    this.fx('judge_result', {
+      playerId: player.id,
+      card: fxCard(jr),
+      delayedCard: delayedInfo,
+      result,
+    });
+    await this.pause(Math.min(this.pace, 650));
     if (dcard.kind === 'lebu') {
       this.discard.push(dcard);
       if (jr.suit !== 'heart') {
@@ -734,21 +800,33 @@ export class GameEngine {
   }
 
   // 判定：翻开牌堆顶。返回该判定牌。可被 鬼才/天妒 等改写。
-  async doJudge(player, reason = '') {
+  async doJudge(player, reason = '', context = {}) {
     this._refillDeck();
     let card = this.deck.shift();
     this.changed();
     this.log(`判定牌为 ${card.name}（${suitText(card)}）。`);
-    this.fx('judge', { playerId: player.id, card: { name: card.name, suit: card.suit, number: card.number, red: card.red } });
-    await this.pause(700);
+    this.fx('judge', {
+      playerId: player.id,
+      card: fxCard(card),
+      reason,
+      sourceCard: context.sourceCard || null,
+      rewritten: false,
+    });
+    await this.pause(820);
     // 改判类技能（鬼才）
     const newCard = await triggerSkill(this, 'judge', { player, card, reason });
     if (newCard && newCard !== card) {
       this.discard.push(card);
       card = newCard;
       this.log(`判定被改写为 ${card.name}（${suitText(card)}）。`, 'good');
-      this.fx('judge', { playerId: player.id, card: { name: card.name, suit: card.suit, number: card.number, red: card.red } });
-      await this.pause(700);
+      this.fx('judge', {
+        playerId: player.id,
+        card: fxCard(card),
+        reason,
+        sourceCard: context.sourceCard || null,
+        rewritten: true,
+      });
+      await this.pause(820);
     }
     // 判定结束后处置：天妒等可获得判定牌；否则进弃牌堆
     const taken = await triggerSkill(this, 'afterJudge', { player, card, reason });
@@ -1234,6 +1312,12 @@ export class GameEngine {
         }
         const sources = card.virtual ? card.sourceCards : [card];
         sources.forEach((c) => removeFromHand(responder.hand, c));
+        this.fx('use', {
+          userId: responder.id,
+          card: fxCard(card),
+          targetIds: [player.id],
+          verb: '救援',
+        });
         this.toDiscard([card], responder);
         this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
         player.hp += 1;
@@ -1530,13 +1614,59 @@ export class GameEngine {
   }
 }
 
+// 延时锦囊的判定结果文案同时供动画与规则结算使用，避免只翻牌却看不懂结果。
+function delayedJudgeResult(dcard, card) {
+  const beh = CARD_DEFS[dcard.kind]?.behaves || dcard.kind;
+  if (dcard.kind === 'lebu') {
+    return card.suit !== 'heart'
+      ? { tone: 'bad', title: '判定生效', detail: '非红桃 · 跳过出牌阶段' }
+      : { tone: 'good', title: '判定未生效', detail: '红桃 · 正常出牌' };
+  }
+  if (dcard.kind === 'fushishu') {
+    return card.suit !== 'heart'
+      ? { tone: 'bad', title: '腐蚀生效', detail: '非红桃 · 跳过出牌阶段' }
+      : { tone: 'bad', title: '腐蚀生效', detail: '红桃 · 本回合无法回复体力' };
+  }
+  if (dcard.kind === 'guldanhand') {
+    return card.suit !== 'club'
+      ? { tone: 'bad', title: '诅咒生效', detail: '非梅花 · 跳过摸牌阶段' }
+      : { tone: 'bad', title: '诅咒生效', detail: '梅花 · 新获得的牌会被弃置' };
+  }
+  if (dcard.kind === 'zhuanzhuyizhi') {
+    if (isRed(card.suit) && card.number >= 3) return { tone: 'bad', title: '意志受限', detail: '红色 3~K · 只能使用【杀】【闪】' };
+    if (isBlack(card.suit) && card.number >= 3) return { tone: 'bad', title: '技能封锁', detail: '黑色 3~K · 无法使用技能' };
+    return { tone: 'good', title: '判定未生效', detail: '点数不足 3' };
+  }
+  if (dcard.kind === 'pingzhuangshandian') {
+    return isBlack(card.suit)
+      ? { tone: 'bad', title: '闪电命中', detail: '黑色 · 受到 3 点雷电伤害' }
+      : { tone: 'neutral', title: '闪电转移', detail: '红色 · 移至下一名角色' };
+  }
+  if (beh === 'shandian') {
+    const hit = card.suit === 'spade' && card.number >= 2 && card.number <= 9;
+    return hit
+      ? { tone: 'bad', title: '闪电命中', detail: '黑桃 2~9 · 受到 3 点雷电伤害' }
+      : { tone: 'neutral', title: '判定未命中', detail: '移至下一名角色' };
+  }
+  return { tone: 'neutral', title: '判定完成', detail: suitText(card) };
+}
+
 // 文本助手
 function suitText(c) {
   const m = { spade: '黑桃', heart: '红桃', club: '梅花', diamond: '方块' };
   return `${m[c.suit]}${c.number}`;
 }
 function natureText(n) { return n === 'fire' ? '火焰' : n === 'thunder' ? '雷电' : ''; }
-function fxCard(c) { return { name: c.name, red: c.red, suit: c.suit, number: c.number, kind: c.kind, type: c.type }; }
+function fxCard(c) {
+  return {
+    name: c.name || CARD_DEFS[c.kind]?.name || c.kind,
+    red: !!c.red,
+    suit: c.suit,
+    number: c.number,
+    kind: c.kind,
+    type: c.type || CARD_DEFS[c.kind]?.type,
+  };
+}
 
 // 身份分配表（标准三国杀）
 export function identityDistribution(n) {

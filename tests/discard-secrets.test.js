@@ -121,7 +121,7 @@ test('弃置奥秘会真正移出奥秘区并清除蛊惑标记', () => {
   assert.equal(engine.logs.some((entry) => entry.text.includes(`【${secret.name}】被弃置`)), true);
 });
 
-test('弃置效果会在选择界面明确显示奥秘名称', async () => {
+test('弃置效果只显示奥秘背面，不把奥秘实体发送到选择界面', async () => {
   const user = player('user');
   const target = player('target');
   const secret = card('secret', 'zhasi');
@@ -137,7 +137,7 @@ test('弃置效果会在选择界面明确显示奥秘名称', async () => {
   engine.ask = async (asked, req) => {
     if (asked === user && req.type === REQ.CHOOSE_CARD) {
       requests.push(req);
-      return { card: secret.id };
+      return { card: 'secret' };
     }
     return null;
   };
@@ -152,10 +152,9 @@ test('弃置效果会在选择界面明确显示奥秘名称', async () => {
   await resolveCard(engine, { user, card: guohe, targets: [target], options: {} });
 
   assert.equal(requests.length, 1);
-  const secretOption = requests[0].visibleCards.find((entry) => entry.card.id === secret.id);
-  assert.equal(secretOption.zone, '奥秘');
-  assert.equal(secretOption.card.name, secret.name);
-  assert.equal(requests[0].secretChoice, undefined);
+  assert.equal(requests[0].visibleCards.some((entry) => entry.card.id === secret.id), false);
+  assert.deepEqual(requests[0].secretChoice, { secretCount: 1 });
+  assert.equal(JSON.stringify(requests[0]).includes(secret.name), false);
   assert.deepEqual(target.secrets, []);
   assert.equal(engine.discard.includes(secret), true);
 });
@@ -191,9 +190,45 @@ test('爆炸符文由奥秘拥有者手动选择额外弃置的牌', async () =>
   assert.equal(engine.discard.includes(chosen), true);
 });
 
-test('照明弹的单个奥秘选择会显示持有者和奥秘名称', async () => {
+test('暗中破坏的奥秘选项不泄露名称或实体牌', async () => {
   const user = player('user');
   const target = player('target');
+  const sabotage = card('sabotage', 'anzhongpohuai');
+  const equip = card('equip', 'zhuge');
+  const secret = card('secret', 'zhasi');
+  user.hand.push(sabotage);
+  user.flags.cardsUsed = 2;
+  target.equips.weapon = equip;
+  target.secrets.push(secret);
+  const requests = [];
+  const engine = new GameEngine({ mode: 'test', pack: 'hs', pace: 0 });
+  engine.players = [user, target];
+  engine.turnOwner = user;
+  engine.pause = async () => {};
+  engine.ask = async (_asked, req) => {
+    requests.push(req);
+    if (req.title?.includes('一张装备')) return { value: equip.id };
+    if (req.title?.includes('暗中破坏·连击')) return { value: 'secret' };
+    return null;
+  };
+
+  await resolveCard(engine, { user, card: sabotage, targets: [target], options: {} });
+
+  const choice = requests.find((req) => req.title?.includes('暗中破坏·连击'));
+  assert.deepEqual(choice.options.find((option) => option.value === 'secret'), {
+    value: 'secret',
+    label: '一个奥秘',
+  });
+  assert.equal(JSON.stringify(choice.options).includes(secret.name), false);
+  assert.equal(target.secrets.length, 0);
+  assert.equal(engine.discard.includes(secret), true);
+});
+
+test('照明弹的单个奥秘选择隐藏名称并显示持有者队伍', async () => {
+  const user = player('user');
+  const target = player('target');
+  user.team = 'A';
+  target.team = 'B';
   const flare = card('flare', 'zhaomingdan');
   const secret = card('secret', 'zhasi');
   user.hand.push(flare);
@@ -214,5 +249,6 @@ test('照明弹的单个奥秘选择会显示持有者和奥秘名称', async ()
   await resolveCard(engine, { user, card: flare, targets: [user], options: {} });
 
   const choice = requests.find((req) => req.title?.startsWith('照明弹：可弃掉'));
-  assert.equal(choice.options.some((option) => option.label === `${target.name} 的【${secret.name}】`), true);
+  assert.equal(choice.options.some((option) => option.label === `${target.name}（B队）的一个奥秘`), true);
+  assert.equal(JSON.stringify(choice).includes(secret.name), false);
 });

@@ -8,6 +8,29 @@ import { discardableCards, findDiscardableCard, gainableCards, equipmentCards } 
 
 const defOf = (c) => CARD_DEFS[c.kind] || {};
 
+// 统一广播“使用/打出牌”信息，让所有客户端都能把牌面锚定到实际出牌者。
+// 奥秘只公开为“奥秘”，避免动画意外泄露盖牌内容。
+function useFx(engine, user, card, targets = [], { conceal = false, verb = '使用' } = {}) {
+  if (!engine?.fx || !user || !card) return;
+  const def = defOf(card);
+  const info = conceal
+    ? { name: '奥秘', kind: 'secret', type: 'secret' }
+    : {
+        name: card.name || def.name || card.kind,
+        red: !!card.red,
+        suit: card.suit,
+        number: card.number,
+        kind: card.kind,
+        type: card.type || def.type,
+      };
+  engine.fx('use', {
+    userId: user.id,
+    card: info,
+    targetIds: targets.filter(Boolean).map((target) => typeof target === 'string' ? target : target.id),
+    verb,
+  });
+}
+
 // ---------- 装备访问（骨架：玛洛加尔可同时装备2件武器/防具，存于 equips2）----------
 export const weaponsOf = (p) => [p?.equips?.[EQUIP_SLOT.WEAPON], p?.equips2?.weapon].filter(Boolean);
 export const armorsOf = (p) => [p?.equips?.[EQUIP_SLOT.ARMOR], p?.equips2?.armor].filter(Boolean);
@@ -187,6 +210,7 @@ async function settleShanResponse(engine, player, card) {
   const previousActor = engine._actingUser;
   engine._actingUser = player;
   try {
+    useFx(engine, player, card, [], { verb: '打出' });
     engine.toDiscard([card], player);
 
     if (engine.turnOwner === player) {
@@ -309,6 +333,7 @@ async function _resolveCard(engine, ctx) {
   // 装备牌
   if (def.type === CARD_TYPE.EQUIP) {
     if (await fireExplosiveRunes(engine, user, card)) return; // 爆炸符文：装备被炸毁
+    useFx(engine, user, card, [user], { verb: '装备' });
     engine.equip(user, card);
     if (def.discardSuitsRefill) await applyRunblade(engine, user); // 伦鲁迪洛尔
     if (def.equipBackstab) { // 弑君：凭空背刺一名角色
@@ -346,7 +371,7 @@ async function _resolveCard(engine, ctx) {
     card.xiejiBase = { ...(engine._spellUses || {}) };
     user.secrets.push(card);
     engine.log(`${user.name} 设置了一个奥秘。`, 'play');
-    engine.fx('use', { userId: user.id, card: { name: '奥秘', kind: 'secret', type: 'secret' }, targetIds: [user.id] });
+    useFx(engine, user, card, [user], { conceal: true, verb: '设置' });
     engine.changed();
     return;
   }
@@ -375,16 +400,20 @@ async function _resolveCard(engine, ctx) {
     if (tgt !== user) tgt = await fireMisdirect(engine, user, tgt, card);
     if (tgt.judge.some((j) => j.kind === card.kind)) ctx.cardUseCancelled = true;
     if (tgt.judge.some((j) => j.kind === card.kind)) { engine.toDiscard([card]); return; } // 防重复同名
-    // 无懈可击 / 法术反制：可抵消对他人贴放的延时锦囊（对自己贴放的闪电/瓶装闪电不触发）
-    if (tgt !== user && await nullified(engine, card, user, tgt)) { engine.toDiscard([card]); engine.log(`【${card.name}】被抵消。`, 'good'); return; }
-    tgt.judge.push(stripVirtual(card));
+    useFx(engine, user, card, [tgt]);
+    // 延时锦囊先进入判定区；无懈可击 / 法术反制统一留到目标即将判定时询问。
+    // 记录原使用者与“无法响应”状态，闪电转移后仍能按原始来源正确开启反制窗口。
+    const delayedCard = stripVirtual(card);
+    delayedCard.delayedBy = user.id;
+    if (card._noResponse) delayedCard._noResponse = true;
+    tgt.judge.push(delayedCard);
     engine.log(`${user.name} 对 ${tgt.name} 使用【${card.name}】。`);
     engine.changed();
     return;
   }
 
   engine.log(`${user.name} 使用【${card.name}】${targets.length ? '，目标：' + targets.map((t) => t.name).join('、') : ''}。`, 'play');
-  engine.fx('use', { userId: user.id, card: { name: card.name, red: card.red, kind: card.kind, type: def.type }, targetIds: targets.map((t) => t.id) });
+  useFx(engine, user, card, targets);
   // 凯尔萨斯·奥：被明置的牌被其拥有者使用时，标记者视为对其使用一张【火球术】
   if (card.aoMark) {
     const k = engine.playerById(card.aoMark); card.aoMark = null;
@@ -597,8 +626,7 @@ async function playZhaomingdan(engine, user, card) {
     const all = listSecrets();
     let mine = 0;
     for (const { p, sc } of all) { removeFrom(p.secrets, sc); engine.discard.push(sc); if (p === user) mine++; }
-    const names = all.map(({ p, sc }) => `${p.name}的【${sc.name}】`).join('、');
-    engine.log(`${user.name} 的【照明弹】弃掉场上 ${all.length} 张奥秘${names ? `：${names}` : ''}！`, 'play');
+    engine.log(`${user.name} 的【照明弹】弃掉场上 ${all.length} 张奥秘！`, 'play');
     engine.changed();
     if (!mine) {
       engine.log(`${user.name} 没有弃掉自己的奥秘，受到2点强制伤害！`, 'bad');
@@ -609,19 +637,32 @@ async function playZhaomingdan(engine, user, card) {
   engine.drawCards(user, 1);
   const all = listSecrets();
   if (!all.length) return;
+  const holders = [...new Set(all.map(({ p }) => p))];
   let chosen = null;
   if (agent?.kind === 'ai') {
-    chosen = all.find(({ p }) => p !== user && !engine.isAlly(user, p)) || null;
+    const holder = holders.find((p) => p !== user && !engine.isAlly(user, p));
+    const choices = holder ? all.filter(({ p }) => p === holder) : [];
+    chosen = choices[Math.floor(Math.random() * choices.length)] || null;
   } else {
     const r = await engine.ask(user, {
       type: REQ.CHOOSE_OPTION, title: '照明弹：可弃掉场上1张奥秘（可放弃）',
-      options: [...all.map(({ p, sc }, idx) => ({ value: idx, label: `${p.name} 的【${sc.name}】` })), { value: 'skip', label: '放弃' }],
+      options: [
+        ...holders.map((p, idx) => ({
+          value: idx,
+          label: `${p.name}${p.team ? `（${p.team}队）` : ''}的一个奥秘`,
+        })),
+        { value: 'skip', label: '放弃' },
+      ],
     });
-    if (r && r.value !== 'skip') chosen = all[r.value | 0] || null;
+    if (r && r.value !== 'skip') {
+      const holder = holders[r.value | 0];
+      const choices = holder ? all.filter(({ p }) => p === holder) : [];
+      chosen = choices[Math.floor(Math.random() * choices.length)] || null;
+    }
   }
   if (chosen) {
     removeFrom(chosen.p.secrets, chosen.sc); engine.discard.push(chosen.sc);
-    engine.log(`${user.name} 的【照明弹】弃掉 ${chosen.p.name} 的【${chosen.sc.name}】。`, 'play');
+    engine.log(`${user.name} 的【照明弹】弃掉 ${chosen.p.name} 的一个奥秘。`, 'play');
     engine.changed();
   }
 }
@@ -656,19 +697,23 @@ async function playAnzhong(engine, user, target, card) {
   if (!eqs.length && !slots.length) return;
   let choice = null;
   if (agent?.kind === 'ai') {
-    choice = slots.length ? { type: 'secret', ...slots[0] } : { type: 'equip', c: eqs[0] };
+    const slot = slots[Math.floor(Math.random() * slots.length)];
+    choice = slot ? { type: 'secret', ...slot } : { type: 'equip', c: eqs[0] };
   } else {
     const r = await engine.ask(user, {
       type: REQ.CHOOSE_OPTION, title: `暗中破坏·连击：再弃掉 ${target.name} 的一张奥秘或装备（可放弃）`,
       options: [
         ...eqs.map((c) => ({ value: 'e:' + c.id, label: c.name, card: c })),
-        ...slots.map(({ sc, i }) => ({ value: 's:' + i, label: `奥秘【${sc.name}】`, card: sc })),
+        ...(slots.length ? [{ value: 'secret', label: '一个奥秘' }] : []),
         { value: 'skip', label: '放弃' },
       ],
     });
     if (r?.value && r.value !== 'skip') {
       if (String(r.value).startsWith('e:')) { const c = eqs.find((x) => 'e:' + x.id === r.value); if (c) choice = { type: 'equip', c }; }
-      else { const i = parseInt(String(r.value).slice(2), 10); const slot = slots.find((x) => x.i === i); if (slot) choice = { type: 'secret', ...slot }; }
+      else if (r.value === 'secret') {
+        const slot = slots[Math.floor(Math.random() * slots.length)];
+        if (slot) choice = { type: 'secret', ...slot };
+      }
     }
   }
   if (!choice) return;
@@ -677,7 +722,7 @@ async function playAnzhong(engine, user, target, card) {
     engine.log(`连击！${user.name} 再弃掉 ${target.name} 的【${choice.c.name}】。`, 'play');
   } else {
     removeFrom(target.secrets, choice.sc); engine.discard.push(choice.sc);
-    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的【${choice.sc.name}】。`, 'play');
+    engine.log(`连击！${user.name} 再弃掉 ${target.name} 的一个奥秘。`, 'play');
     engine.changed();
   }
 }
@@ -729,14 +774,32 @@ async function playHaojiao(engine, user, card) {
       if (!meta || meta.lord) continue;
       if (meta.active && !meta.perTurn) continue; // 仅锁定技或回合技
       if (user.skills.includes(k) || k === 'posui') continue; // 破碎依赖牌堆部件，跳过
-      opts.push({ value: k, label: `${g.name}·${meta.name}` });
+      opts.push({
+        value: k,
+        label: `${g.name}·${meta.name}`,
+        general: { id: g.id, name: g.name, title: g.title, faction: g.faction, hp: g.hp },
+        skill: {
+          id: k,
+          name: meta.name,
+          desc: meta.desc || '',
+          type: meta.active ? '回合技' : '锁定技',
+        },
+      });
     }
   }
   engine.log(`${user.name} 吹响【上古号角】，展示：${picks.map((id) => getGeneral(id)?.name).filter(Boolean).join('、')}。`, 'play');
   if (!opts.length) { engine.log('没有可获得的锁定技/回合技。', 'system'); return; }
   let k;
   if (engine.agentOf(user)?.kind === 'ai') k = opts[Math.floor(Math.random() * opts.length)].value;
-  else { const r = await engine.ask(user, { type: REQ.CHOOSE_OPTION, title: '上古号角：获得一个锁定技或回合技', options: opts }); k = r?.value || opts[0].value; }
+  else {
+    const r = await engine.ask(user, {
+      type: REQ.CHOOSE_OPTION,
+      kind: 'general_skill',
+      title: '上古号角：获得一个锁定技或回合技',
+      options: opts,
+    });
+    k = r?.value || opts[0].value;
+  }
   user.skills.push(k);
   engine.log(`✨ ${user.name} 获得技能【${SKILLS[k].name}】！`, 'win');
   engine.changed();
@@ -1093,6 +1156,7 @@ async function resolveShaOn(engine, user, target, card) {
     if (resp?.card) {
       const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
       sources.forEach((c) => removeFromHand(target.hand, c));
+      useFx(engine, target, resp.card, [target], { verb: '打出' });
       engine.toDiscard([resp.card], target);
       engine.log(`${target.name} 因【无坚不摧】对自己使用了一张【杀】。`, 'play');
       await resolveShaOn(engine, target, target, resp.card);
@@ -1165,6 +1229,7 @@ async function resolveShaOn(engine, user, target, card) {
       if (again?.card) {
         const sources = again.card.virtual ? again.card.sourceCards : [again.card];
         sources.forEach((c) => removeFromHand(user.hand, c));
+        useFx(engine, user, again.card, [target], { verb: '打出' });
         engine.toDiscard([again.card]);
         engine.log(`${user.name}（青龙偃月刀）再次出【杀】！`);
         await resolveShaOn(engine, user, target, again.card);
@@ -1234,6 +1299,7 @@ async function resolveShaOn(engine, user, target, card) {
     if (resp?.card) {
       const srcs = resp.card.virtual ? resp.card.sourceCards : [resp.card];
       srcs.forEach((c) => removeFromHand(target.hand, c));
+      useFx(engine, target, resp.card, [], { verb: '打出' });
       engine.toDiscard([resp.card], target);
       const cands = engine.alivePlayers.filter((p) => p !== target);
       let victim = null;
@@ -1319,6 +1385,7 @@ async function askSha(engine, player, ctx) {
       if (r?.card) {
         const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
         srcs.forEach((c) => removeFromHand(ally.hand, c));
+        useFx(engine, ally, r.card, ctx.against ? [ctx.against] : [], { verb: '打出' });
         engine.toDiscard([r.card], ally);
         engine.log(`${ally.name} 发动【激将】替 ${player.name} 打出【杀】。`, 'good');
         return true;
@@ -1329,6 +1396,7 @@ async function askSha(engine, player, ctx) {
   if (resp?.card) {
     const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
     sources.forEach((c) => removeFromHand(player.hand, c));
+    useFx(engine, player, resp.card, ctx.against ? [ctx.against] : [], { verb: '打出' });
     engine.toDiscard([resp.card], player);
     return true;
   }
@@ -1361,21 +1429,25 @@ async function playShunshou(engine, user, target, card) {
   if (picked) { engine.gainCard(user, picked); engine.log(`${user.name} 获得了 ${target.name} 的一张牌。`); }
 }
 
-// 选择目标的一张牌：手牌保持隐藏；弃置效果中的奥秘显示名称，便于明确选择
+// 选择目标的一张牌：手牌与奥秘都保持隐藏，服务端按区域随机命中实体牌
 export async function chooseTargetCard(engine, user, target, title, hideHand, includeSecrets = false) {
   const eligible = includeSecrets ? discardableCards(target) : gainableCards(target);
   const randomEligible = () => eligible[Math.floor(Math.random() * eligible.length)] || null;
   const visible = [];
   equipmentCards(target).forEach((c) => visible.push({ card: c, zone: '装备' }));
   target.judge.forEach((c) => visible.push({ card: c, zone: '判定' }));
-  if (includeSecrets) (target.secrets || []).forEach((c) => visible.push({ card: c, zone: '奥秘' }));
+  const secrets = includeSecrets
+    ? (target.secrets || []).filter((card) => eligible.includes(card))
+    : [];
   const handChoice = target.hand.length ? { handCount: target.hand.length } : null;
+  const secretChoice = secrets.length ? { secretCount: secrets.length } : null;
   const resp = await engine.ask(user, {
     type: REQ.CHOOSE_CARD, title, target,
-    visibleCards: visible, handChoice, fromPlayer: target.id,
+    visibleCards: visible, handChoice, secretChoice, fromPlayer: target.id,
   });
   if (resp?.card) {
     if (resp.card === 'hand') return randomHand(target);
+    if (resp.card === 'secret') return secrets[Math.floor(Math.random() * secrets.length)] || randomEligible();
     const found = eligible.find((card) => card.id === resp.card);
     return found || randomEligible();
   }
@@ -1486,7 +1558,7 @@ async function playJiedao(engine, user, targets, card, ctx) {
 
 // ====================== 无懈可击链 ======================
 // 返回 true 表示原效果被抵消
-export async function nullified(engine, card, byUser, targetPlayer) {
+export async function nullified(engine, card, byUser, targetPlayer, options = {}) {
   if (card?._noResponse) return false; // 幻象：无法被卡牌/技能响应
   // 护心（尤格萨隆）：回合外每轮可凭空使用1次（觉醒后2次）【法术反制】保护自己
   if (targetPlayer && byUser && byUser !== targetPlayer && hasSkill(targetPlayer, 'huxin') && engine.turnOwner !== targetPlayer) {
@@ -1497,34 +1569,39 @@ export async function nullified(engine, card, byUser, targetPlayer) {
       return true;
     }
   }
-  return await nullifyChain(engine, { card, byUser, targetPlayer });
+  return await nullifyChain(engine, { card, byUser, targetPlayer, ...options });
 }
 
-async function nullifyChain(engine, { card, byUser, targetPlayer }) {
+async function nullifyChain(engine, { card, byUser, targetPlayer, timing }) {
   let isNullified = false;
   let guard = 0;
   while (guard++ < 12) {
-    const responder = await askAnyWuxie(engine, { card, targetPlayer, isNullified });
-    if (!responder) break;
+    const response = await askAnyWuxie(engine, { card, targetPlayer, isNullified, timing });
+    if (!response) break;
     isNullified = !isNullified;
-    engine.log(`${responder.name} 打出【无懈可击】，${isNullified ? '抵消' : '反抵消'}【${card.name}】。`, 'good');
+    engine.log(`${response.player.name} 打出【${response.card.name}】，${isNullified ? '抵消' : '反抵消'}【${card.name}】。`, 'good');
     await engine.pause(350);
   }
   return isNullified;
 }
 
-async function askAnyWuxie(engine, { card, targetPlayer, isNullified }) {
+async function askAnyWuxie(engine, { card, targetPlayer, isNullified, timing }) {
+  const counterName = engine.config?.pack === 'hs' ? '法术反制' : '无懈可击';
+  const title = timing === 'judge'
+    ? `${targetPlayer?.name || '目标'} 的【${card.name}】即将判定，是否使用【${counterName}】？`
+    : `是否对【${card.name}】${targetPlayer ? '（' + targetPlayer.name + '）' : ''}使用【${counterName}】？`;
   for (const p of engine.alivePlayers) {
     const hasWuxie = p.hand.some((c) => c.kind === 'wuxie' || CARD_DEFS[c.kind]?.as === 'wuxie');
     if (!hasWuxie) continue;
     const resp = await engine.ask(p, {
-      type: REQ.ASK_NULLIFY, card, targetPlayer, isNullified,
-      title: `是否对【${card.name}】${targetPlayer ? '（' + targetPlayer.name + '）' : ''}使用【无懈可击】？`,
+      type: REQ.ASK_NULLIFY, card, targetPlayer, isNullified, timing,
+      title,
     });
     if (resp?.card) {
       removeFromHand(p.hand, resp.card);
+      useFx(engine, p, resp.card, targetPlayer ? [targetPlayer] : [], { verb: '打出' });
       engine.toDiscard([resp.card], p);
-      return p;
+      return { player: p, card: resp.card };
     }
   }
   return null;

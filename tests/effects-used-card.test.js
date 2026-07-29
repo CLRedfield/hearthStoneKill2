@@ -41,9 +41,10 @@ function makeGame() {
     alivePlayers: [player],
     over: false,
     discard: [],
+    fxEvents: [],
     drawCount: 0,
     log() {},
-    fx() {},
+    fx(name, event) { this.fxEvents.push({ name, ...event }); },
     changed() {},
     pause: async () => {},
     noteSpellUse: async () => {},
@@ -78,6 +79,10 @@ for (const [label, kind, number, getTargets] of [
 
     assert.equal(game.engine.drawCount, 1);
     assert.equal(game.player.flags.cardsUsed, 1);
+    const useEvent = game.engine.fxEvents.find((event) => event.name === 'use');
+    assert.equal(useEvent.userId, game.player.id);
+    assert.equal(useEvent.card.type, CARD_DEFS[kind].type);
+    assert.equal(useEvent.card.name, kind === 'zhasi' ? '奥秘' : card.name);
   });
 }
 
@@ -96,4 +101,25 @@ test('a rejected duplicate secret does not trigger Corruption', async () => {
 
   assert.equal(game.engine.drawCount, 0);
   assert.equal(game.player.flags.cardsUsed, undefined);
+});
+
+test('Ancient Horn sends hero, skill type, and full description to the confirmation UI', async () => {
+  const game = makeGame();
+  const card = makeCard('shangguhaojiao', 3);
+  game.player.generalId = 'azshara';
+  let request = null;
+  game.engine.agentOf = () => ({ kind: 'human' });
+  game.engine.ask = async (_player, req) => {
+    request = req;
+    return { value: req.options[0].value };
+  };
+
+  await resolveCard(game.engine, { user: game.player, card, targets: [game.player], options: {} });
+
+  assert.equal(request.kind, 'general_skill');
+  assert.ok(request.options.length > 0);
+  assert.ok(request.options.every((option) => option.general?.name));
+  assert.ok(request.options.every((option) => option.skill?.name));
+  assert.ok(request.options.every((option) => option.skill?.type === '锁定技' || option.skill?.type === '回合技'));
+  assert.ok(request.options.every((option) => typeof option.skill?.desc === 'string' && option.skill.desc.length > 0));
 });

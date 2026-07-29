@@ -91,13 +91,35 @@
 @keyframes hpLow { 0%,100% { box-shadow: 0 0 4px rgba(224,88,79,.5); } 50% { box-shadow: 0 0 11px rgba(224,88,79,.95); } }
 .p-hand-count { font-size: 12px; color: var(--text-dim); }
 
+/* 每名角色最近一次用牌：动效结束后仍保留片刻，便于扫视追溯。 */
+.p-recent-use {
+  --recent: #ddb84d;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1px 6px;
+  min-height: 30px; margin: 0 -3px; padding: 4px 7px 4px 8px;
+  border-left: 3px solid var(--recent); border-radius: 3px 7px 7px 3px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--recent) 22%, transparent), rgba(255,255,255,.025));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045);
+  animation: recentUseIn .24s cubic-bezier(.2,.85,.25,1.15) both;
+}
+.p-recent-use.type-trick { --recent: #9a6dce; }
+.p-recent-use.type-delayed { --recent: #dc9742; }
+.p-recent-use.type-equip { --recent: #43a86c; }
+.p-recent-use.type-secret { --recent: #a98be8; }
+.p-recent-kicker { color: var(--text-dim); font-size: 9px; white-space: nowrap; }
+.p-recent-card { min-width: 0; color: var(--text); font: 700 13px/1.15 "STKaiti","KaiTi",serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-recent-use.red .p-recent-card { color: var(--red); }
+.p-recent-target { grid-column: 1 / -1; color: color-mix(in srgb, var(--recent) 68%, var(--text)); font-size: 9px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes recentUseIn { from { opacity: 0; transform: translateY(5px); filter: brightness(1.65); } to { opacity: 1; transform: none; filter: brightness(1); } }
+
 .p-skills { display: flex; gap: 4px; flex-wrap: wrap; }
 .skill-tag { font-size: 11px; color: #ddd2ff; background: rgba(90,72,130,.5); border: 1px solid rgba(150,128,200,.5); padding: 0 6px; border-radius: 7px; cursor: help; }
 .p-equips { display: flex; flex-direction: column; gap: 3px; }
 .equip-chip { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(46,139,87,.16); border: 1px solid rgba(46,139,87,.4); color: #cfe9da; }
 .equip-chip.red { background: rgba(184,49,42,.16); border-color: rgba(224,88,79,.4); color: #f3cfca; }
 .eq-tag { color: var(--text-dim); }
-.eq-suit { margin-left: auto; opacity: .8; }
+.eq-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eq-range { flex: 0 0 auto; color: #e5c978; font-size: 10px; white-space: nowrap; }
+.eq-suit { flex: 0 0 auto; margin-left: auto; opacity: .8; }
 .p-judge { display: flex; gap: 4px; flex-wrap: wrap; }
 .judge-chip { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: rgba(140,91,140,.3); border: 1px solid rgba(180,120,180,.5); color: #e8d6f0; cursor: help; }
 .dead-overlay { position: absolute; inset: 0; display: grid; place-items: center; font: 700 26px "STKaiti","KaiTi",serif; color: rgba(224,88,79,.9); background: rgba(8,6,4,.45); border-radius: 12px; letter-spacing: 4px; }
@@ -340,22 +362,113 @@
 .fx-card { position: fixed; left: 0; top: 0; width: 54px; height: 76px; border-radius: 7px;
   background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 1px solid #b69a5e;
   box-shadow: 0 8px 22px rgba(0,0,0,.55), 0 0 18px var(--accent, var(--gold));
-  display: flex; flex-direction: column; align-items: center; justify-content: center; will-change: transform, opacity; }
+  display: flex; flex-direction: column; align-items: center; justify-content: center; will-change: transform, opacity, filter; }
 .fx-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--accent, var(--gold)); border-radius: 7px 7px 0 0; }
-.fxc-name { font: 800 21px/1 "STKaiti","KaiTi",serif; color: #1c140c; }
+.fxc-corner { position: absolute; top: 7px; left: 7px; font: 800 11px/1 sans-serif; color: #282016; }
+.fx-card.red .fxc-corner { color: #a42620; }
+.fxc-name { max-width: 100%; padding: 0 4px; text-align: center; overflow-wrap: anywhere; font: 800 19px/1.02 "STKaiti","KaiTi",serif; color: #1c140c; }
 .fx-card.red .fxc-name { color: #8e201b; }
 .fxc-suit { font-size: 13px; color: #6a5a3a; margin-top: 3px; }
 .fx-card.red .fxc-suit { color: var(--red); }
+.fx-use-card {
+  width: 78px; height: 108px; border-width: 2px; border-radius: 10px;
+  box-shadow: 0 15px 38px rgba(0,0,0,.68), 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 32px var(--accent);
+}
+.fx-use-card::before { height: 6px; border-radius: 8px 8px 0 0; }
+.fx-use-card .fxc-corner { top: 10px; left: 9px; font-size: 13px; }
+.fx-use-card .fxc-name { padding: 0 7px; font-size: 24px; line-height: 1.02; }
+.fx-use-card .fxc-suit { font-size: 17px; }
+.fxc-actor, .fxc-targets {
+  position: absolute; left: 50%; transform: translateX(-50%); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 66%, white); background: rgba(17,12,8,.94);
+  box-shadow: 0 5px 16px rgba(0,0,0,.55); color: #fff3c8; text-shadow: 0 1px 3px #000;
+}
+.fxc-actor { bottom: calc(100% + 9px); padding: 5px 11px; border-radius: 14px; font-size: 12px; font-weight: 750; letter-spacing: .5px; }
+.fxc-targets { top: calc(100% + 8px); padding: 3px 9px; border-radius: 10px; color: #eadcae; font-size: 10px; }
+.fx-source-ring {
+  position: fixed; border: 2px solid var(--accent); border-radius: 13px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent), inset 0 0 24px color-mix(in srgb, var(--accent) 18%, transparent), 0 0 28px color-mix(in srgb, var(--accent) 72%, transparent);
+  transform-origin: center; will-change: transform, opacity;
+}
 .fx-impact { position: fixed; width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--accent, var(--gold)); box-shadow: 0 0 26px var(--accent, var(--gold)); will-change: transform, opacity; }
-/* 判定动画 */
-.fx-judge { position: fixed; left: 50%; top: 42%; display: flex; flex-direction: column; align-items: center; gap: 10px; will-change: transform, opacity; perspective: 600px; }
-.fxj-label { font: 700 16px/1 "STKaiti","KaiTi",serif; letter-spacing: 3px; color: var(--gold-bright); text-shadow: 0 2px 8px #000; }
-.fxj-card { position: relative; width: 96px; height: 134px; border-radius: 12px; background: linear-gradient(170deg, var(--parch), var(--parch-2)); border: 2px solid var(--gold); box-shadow: 0 0 0 4px rgba(201,162,39,.45), 0 18px 50px rgba(0,0,0,.7), 0 0 40px rgba(201,162,39,.5); display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.fx-judge.red .fxj-card { box-shadow: 0 0 0 4px rgba(224,88,79,.5), 0 18px 50px rgba(0,0,0,.7), 0 0 40px rgba(224,88,79,.5); border-color: var(--red-bright); }
-.fxj-corner { position: absolute; top: 6px; left: 8px; font: 700 16px/1 sans-serif; color: #2a2016; }
-.fx-judge.red .fxj-corner, .fx-judge.red .fxj-name, .fx-judge.red .fxj-suit { color: var(--red); }
-.fxj-name { font: 800 30px/1 "STKaiti","KaiTi",serif; color: #1c140c; }
-.fxj-suit { font-size: 34px; color: #20242b; margin-top: 6px; }
+/* 判定动画：预告反制窗口 → 翻牌 → 结果 / 取消 */
+.fx-judge, .fx-judge-pending, .fx-judge-result, .fx-judge-cancelled {
+  position: fixed; left: 50%; top: 42%; will-change: transform, opacity;
+}
+.fx-judge { display: flex; flex-direction: column; align-items: center; gap: 9px; perspective: 900px; }
+.fxj-kicker, .fxjp-eyebrow, .fxjr-source {
+  color: #e8c968; text-shadow: 0 2px 9px #000; font-weight: 750; letter-spacing: 1.5px;
+}
+.fxj-kicker { padding: 5px 12px; border: 1px solid rgba(232,201,104,.48); background: rgba(24,17,11,.92); font-size: 12px; }
+.fxj-stage { position: relative; width: 126px; height: 160px; display: grid; place-items: center; }
+.fxj-stage::before {
+  content: ""; position: absolute; width: 118px; height: 118px; border: 1px solid rgba(232,201,104,.78); border-radius: 50%;
+  box-shadow: 0 0 0 7px rgba(201,162,39,.08), 0 0 34px rgba(201,162,39,.52); transform: rotate(18deg);
+}
+.fx-judge.red .fxj-stage::before { border-color: rgba(224,88,79,.86); box-shadow: 0 0 0 7px rgba(224,88,79,.08), 0 0 38px rgba(224,88,79,.56); }
+.fxj-flipper { position: relative; width: 96px; height: 134px; transform-style: preserve-3d; }
+.fxj-card {
+  position: absolute; inset: 0; width: 96px; height: 134px; border-radius: 10px; border: 2px solid #b98c28;
+  box-shadow: 0 18px 48px rgba(0,0,0,.76), 0 0 0 4px rgba(201,162,39,.28); backface-visibility: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.fxj-front { background: #f2e3c4; }
+.fx-judge.red .fxj-front { border-color: #d85b50; box-shadow: 0 18px 48px rgba(0,0,0,.76), 0 0 0 4px rgba(224,88,79,.3), 0 0 34px rgba(224,88,79,.5); }
+.fxj-back { background: #2a1d15; border-color: #c59b3e; transform: rotateY(180deg); }
+.fxj-back::before { content: ""; position: absolute; inset: 7px; border: 1px solid rgba(232,201,104,.55); }
+.fxj-back-mark { width: 52px; height: 52px; border: 1px solid #d8b653; border-radius: 50%; display: grid; place-items: center; color: #efd77b; font: 800 28px/1 "STKaiti","KaiTi",serif; }
+.fxj-corner { position: absolute; top: 7px; left: 8px; font: 800 16px/1 sans-serif; color: #2a2016; }
+.fx-judge.red .fxj-corner, .fx-judge.red .fxj-name, .fx-judge.red .fxj-suit { color: #a92f29; }
+.fxj-name { max-width: 84px; text-align: center; overflow-wrap: anywhere; font: 800 27px/1.04 "STKaiti","KaiTi",serif; color: #1c140c; }
+.fxj-suit { font-size: 31px; color: #20242b; margin-top: 6px; }
+.fxj-label { padding: 6px 14px; color: #fff2bf; background: rgba(17,12,8,.94); border: 1px solid rgba(232,201,104,.4); font: 700 14px/1 "STKaiti","KaiTi",serif; letter-spacing: 2px; text-shadow: 0 2px 8px #000; }
+.fx-judge.rewritten .fxj-label { border-color: rgba(109,180,255,.68); color: #bfe0ff; }
+
+.fx-judge-pending {
+  width: min(420px, calc(100vw - 28px)); padding: 16px 20px 15px; color: #f8edce; text-align: center;
+  background: rgba(24,17,11,.96); border: 1px solid rgba(220,151,66,.78); box-shadow: 0 18px 48px rgba(0,0,0,.68), 0 0 34px rgba(220,151,66,.3);
+}
+.fxjp-eyebrow { font-size: 11px; text-transform: uppercase; }
+.fxjp-main { margin-top: 9px; display: flex; justify-content: center; align-items: baseline; gap: 10px; font-size: 20px; }
+.fxjp-card { color: #efb760; font-family: "STKaiti","KaiTi",serif; font-weight: 800; }
+.fxjp-arrow { color: rgba(255,255,255,.44); }
+.fxjp-player { color: #fff7df; }
+.fxjp-counter { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(220,151,66,.26); color: #bfe0ff; font-size: 12px; letter-spacing: 1px; }
+.fxjp-counter.locked { color: #c7bba7; }
+.player.judge-pulse { animation: judgeTargetPulse 1.05s ease both; z-index: 4; }
+@keyframes judgeTargetPulse {
+  0%,100% { transform: translateY(0) scale(1); }
+  32% { transform: translateY(-4px) scale(1.035); border-color: #e6b054; box-shadow: 0 0 0 3px rgba(220,151,66,.38), 0 0 34px rgba(220,151,66,.58); }
+}
+
+.fx-judge-result {
+  width: min(440px, calc(100vw - 28px)); min-height: 112px; padding: 14px 56px 14px 14px; display: flex; align-items: center; gap: 15px;
+  color: #f8edce; background: rgba(22,16,11,.97); border: 1px solid #b89546; box-shadow: 0 20px 54px rgba(0,0,0,.72), 0 0 32px rgba(184,149,70,.26);
+}
+.fx-judge-result.bad { border-color: #cf564d; box-shadow: 0 20px 54px rgba(0,0,0,.72), 0 0 36px rgba(207,86,77,.38); }
+.fx-judge-result.good { border-color: #52a879; box-shadow: 0 20px 54px rgba(0,0,0,.72), 0 0 36px rgba(82,168,121,.34); }
+.fxjr-card { position: relative; flex: 0 0 68px; height: 90px; padding: 9px 6px; display: flex; align-items: center; justify-content: center; text-align: center; background: #f2e3c4; border: 2px solid #b98c28; border-radius: 8px; color: #21170f; box-shadow: 0 10px 25px rgba(0,0,0,.48); }
+.fx-judge-result.red .fxjr-card { border-color: #ce5147; color: #962b25; }
+.fxjr-rank { position: absolute; top: 6px; left: 6px; font: 800 12px/1 sans-serif; }
+.fxjr-card-name { max-width: 58px; overflow-wrap: anywhere; font: 800 18px/1.04 "STKaiti","KaiTi",serif; }
+.fxjr-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.fxjr-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.fxjr-title { color: #f6e4ac; font: 800 27px/1.08 "STKaiti","KaiTi",serif; }
+.fx-judge-result.bad .fxjr-title { color: #ff8177; }
+.fx-judge-result.good .fxjr-title { color: #7bd7a5; }
+.fxjr-detail { color: #d8cbb5; font-size: 12px; line-height: 1.45; }
+.fxjr-seal { position: absolute; right: 13px; top: 50%; width: 34px; height: 34px; transform: translateY(-50%) rotate(-8deg); border: 2px solid currentColor; border-radius: 50%; display: grid; place-items: center; color: #d0ae59; font: 800 19px/1 "STKaiti","KaiTi",serif; opacity: .86; }
+.fx-judge-result.bad .fxjr-seal { color: #e6645b; }
+.fx-judge-result.good .fxjr-seal { color: #60bd89; }
+
+.fx-judge-cancelled {
+  width: min(410px, calc(100vw - 28px)); padding: 15px 18px; display: flex; align-items: center; gap: 14px;
+  color: #eef6ff; background: rgba(17,21,29,.97); border: 1px solid rgba(112,173,231,.75); box-shadow: 0 20px 54px rgba(0,0,0,.72), 0 0 34px rgba(112,173,231,.3);
+}
+.fxjc-mark { flex: 0 0 44px; height: 44px; display: grid; place-items: center; border: 2px solid #80b8ea; border-radius: 50%; color: #b9dcff; font: 700 30px/1 sans-serif; }
+.fxjc-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fxjc-copy strong { color: #c9e5ff; font: 800 24px/1.1 "STKaiti","KaiTi",serif; }
+.fxjc-copy span { color: #b9c8d6; font-size: 12px; line-height: 1.45; }
 .fx-dmg { position: fixed; font: 800 36px/1 "STKaiti","KaiTi",serif; color: #ff5a4a; text-shadow: 0 0 12px rgba(224,60,50,.85), 0 2px 4px #000; will-change: transform, opacity; }
 .fx-dmg.thunder { color: #8ab6ff; text-shadow: 0 0 14px rgba(120,170,255,.9), 0 2px 4px #000; }
 .fx-dmg.fire { color: #ff8a3a; text-shadow: 0 0 14px rgba(255,140,60,.9), 0 2px 4px #000; }
@@ -448,6 +561,9 @@
   .resource-tile { width: 39px; min-height: 34px; padding: 3px 2px; }
   .resource-value { font-size: 12px; }
   .resource-label { font-size: 8px; }
+  .p-recent-use { min-height: 25px; margin: 0 -2px; padding: 3px 5px 3px 6px; gap: 1px 4px; }
+  .p-recent-kicker, .p-recent-target { font-size: 8px; }
+  .p-recent-card { font-size: 11px; }
   .resource-believer.has-preview { width: 100%; max-width: 100%; min-height: 47px; padding: 4px 5px 4px 8px; }
   .resource-preview { font-size: 8px; }
   .self-panel { width: 152px; }
@@ -480,10 +596,23 @@
   .chat-box { width: min(280px, calc(100vw - 12px)); right: calc(6px + env(safe-area-inset-right, 0px)); top: calc(48px + env(safe-area-inset-top, 0px)); bottom: auto; max-height: calc(100dvh - 58px - env(safe-area-inset-top, 0px)); }
   .chat-box.collapsed { width: 128px; }
   .chat-msgs { height: 108px; }
-  .fx-judge .fxj-card { width: 78px; height: 108px; }
-  .fxj-name { font-size: 24px; } .fxj-suit { font-size: 26px; }
+  .fx-judge, .fx-judge-pending, .fx-judge-result, .fx-judge-cancelled { top: 38%; }
+  .fxj-stage { width: 106px; height: 132px; }
+  .fxj-stage::before { width: 96px; height: 96px; }
+  .fxj-flipper, .fx-judge .fxj-card { width: 78px; height: 108px; }
+  .fxj-name { max-width: 68px; font-size: 22px; } .fxj-suit { font-size: 25px; }
+  .fxjp-main { gap: 6px; font-size: 17px; }
+  .fx-judge-result { min-height: 98px; padding: 11px 48px 11px 11px; gap: 11px; }
+  .fxjr-card { flex-basis: 57px; height: 76px; }
+  .fxjr-card-name { max-width: 47px; font-size: 16px; }
+  .fxjr-title { font-size: 22px; }
+  .fxjr-seal { right: 10px; width: 30px; height: 30px; font-size: 16px; }
   .gameover-body { min-width: 0; }
   .go-result { font-size: 34px; letter-spacing: 5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player.judge-pulse { animation-duration: .01ms; }
 }
 
 /* 横屏手机：进一步压缩竖直空间 */

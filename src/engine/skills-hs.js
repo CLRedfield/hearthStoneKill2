@@ -332,7 +332,9 @@ export const HS_SKILLS = {
       const slot = target.equips.weapon ? 'weapon' : (target.equips.armor ? 'armor' : null);
       if (slot) { const eq = target.equips[slot]; target.equips[slot] = null; engine.discard.push(eq); engine.log(`${player.name}【邪火】横置 ${target.name} 的【${eq.name}】。`, 'play'); }
       if (!target.judge.some((j) => j.kind === 'guldanhand')) {
-        target.judge.push(makeRealCard('guldanhand')); // 用实体牌，避免虚拟牌(空sourceCards)在重洗后被无限复制
+        const delayed = makeRealCard('guldanhand'); // 用实体牌，避免虚拟牌(空sourceCards)在重洗后被无限复制
+        delayed.delayedBy = player.id;
+        target.judge.push(delayed);
         engine.log(`${target.name} 的判定区置入【古尔丹之手】。`, 'play');
       }
       engine.changed();
@@ -1872,7 +1874,7 @@ export const HS_SKILLS = {
     },
   },
   aoshu: {
-    name: '奥数', desc: '锁定技：你冻结的每张牌解冻时，其拥有者抉择：①使你摸两张牌；②弃掉该牌并交给你一张牌。',
+    name: '奥数', desc: '锁定技：你冻结的每张牌解冻时，其拥有者抉择：①使你摸两张牌；②弃掉该牌并选择一张手牌交给你。',
     // 解冻抉择逻辑见 game._thawPlayer（依据 card.frozenBy）
   },
 

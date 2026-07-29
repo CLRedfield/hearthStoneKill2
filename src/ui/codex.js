@@ -98,7 +98,7 @@ function buildCards(pack) {
     const grid = el('div', { class: 'codex-grid cards' });
     items.forEach(({ def }) => {
       const sub = type === CARD_TYPE.EQUIP
-        ? [EQUIP_SLOT_NAME[def.slot], def.range != null ? `攻击范围 ${def.range}` : null].filter(Boolean).join(' · ')
+        ? [EQUIP_SLOT_NAME[def.slot], def.range != null ? `攻击范围 ${def.dynamicRange ? 'X' : def.range}` : null].filter(Boolean).join(' · ')
         : (TYPE_LABEL[type] || '');
       grid.appendChild(el('div', { class: `codex-card card type-${type}` }, [
         el('div', { class: 'cxc-name', text: def.name }),

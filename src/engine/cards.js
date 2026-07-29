@@ -73,7 +73,7 @@ export const CARD_DEFS = {
   jinguang: { name: '金光闪耀', type: CARD_TYPE.BASIC, as: 'tao', heal: 1, bottomPeek: 3, desc: '回复1点体力，然后查看牌库底3张牌：可将任意张按顺序置于牌库顶，其余置入弃牌堆；濒死时可当【桃】救援（回复1点）。' },
   // ========== 锦囊牌 ==========
   xinlingshijie: { name: '心灵视界', type: CARD_TYPE.TRICK, behaves: 'shunshou', noDist: true, target: 'one_has_card', desc: '获得一名角色的一张牌（无距离限制）。' },
-  xieelangyu: { name: '邪恶低语', type: CARD_TYPE.TRICK, behaves: 'guohe', discardTrickBonus: true, target: 'one_has_card', desc: '弃置一名角色的一张牌；若弃掉的是锦囊牌，再弃掉其一张牌。' },
+  xieelangyu: { name: '邪恶低语', type: CARD_TYPE.TRICK, behaves: 'guohe', noDist: true, discardTrickBonus: true, target: 'one_has_card', desc: '弃置一名角色的一张牌；若弃掉的是锦囊牌，再弃掉其一张牌（无距离限制）。' },
   aoshuzhihui: { name: '奥术智慧', type: CARD_TYPE.TRICK, behaves: 'wuzhong', target: 'self', desc: '摸两张牌。' },
   hsjuedou: { name: '决斗', type: CARD_TYPE.TRICK, behaves: 'hsjuedou', target: 'one_other', desc: '与一名角色比较手牌中【杀】的数量（你视为多一张）；较少者受到1点强制伤害，平局则都不受伤。' },
   shengmingzhishu: { name: '生命之树', type: CARD_TYPE.TRICK, behaves: 'taoyuan', fullHeal: true, target: 'all', desc: '所有角色回复至体力上限。' },

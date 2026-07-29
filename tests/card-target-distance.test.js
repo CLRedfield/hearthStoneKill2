@@ -17,7 +17,7 @@ function card(id, kind) {
   return { id, kind, name: def.name, type: def.type, suit: 'spade', number: 2, red: false };
 }
 
-test('Mind Vision ignores distance while Snatch remains limited to distance one', () => {
+test('Mind Vision and Evil Whispers ignore distance while Snatch remains limited to distance one', () => {
   const user = player('user');
   const near = player('near', [card('near-card', 'tao')]);
   const far = player('far', [card('far-card', 'tao')]);
@@ -28,11 +28,15 @@ test('Mind Vision ignores distance while Snatch remains limited to distance one'
   };
 
   const mindVision = card('mind-vision', 'xinlingshijie');
+  const evilWhispers = card('evil-whispers', 'xieelangyu');
   const snatch = card('snatch', 'shunshou');
 
   assert.deepEqual(validTargets(engine, user, mindVision).map((p) => p.id), ['near', 'far']);
+  assert.deepEqual(validTargets(engine, user, evilWhispers).map((p) => p.id), ['near', 'far']);
   assert.deepEqual(validTargets(engine, user, snatch).map((p) => p.id), ['near']);
   assert.equal(CARD_DEFS.xinlingshijie.noDist, true);
+  assert.equal(CARD_DEFS.xieelangyu.noDist, true);
   assert.equal(CARD_DEFS.xinlingshijie.target, 'one_has_card');
+  assert.equal(CARD_DEFS.xieelangyu.target, 'one_has_card');
   assert.equal(CARD_DEFS.shunshou.target, 'one_in_1_has_card');
 });

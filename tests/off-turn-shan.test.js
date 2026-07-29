@@ -128,3 +128,21 @@ test('被奥标记的闪在回合外使用时照常触发，并计入基本牌�
   assert.equal(shan.aoMark, null);
   assert.equal(engine.usedBasic, 1);
 });
+
+test('回合外打出闪会广播出牌者和牌面，而不只广播弃牌动画', async () => {
+  const attacker = player('attacker');
+  const responder = player('responder');
+  const shan = card('visible-shan', 'shan', 'diamond', 9);
+  responder.hand.push(shan);
+  const engine = engineFor(responder, attacker, shan);
+  const events = [];
+  engine.on('fx', (event) => events.push(event));
+
+  await dodgeOnce(engine, responder, attacker);
+
+  const useEvent = events.find((event) => event.name === 'use');
+  assert.equal(useEvent.userId, responder.id);
+  assert.equal(useEvent.verb, '打出');
+  assert.equal(useEvent.card.name, shan.name);
+  assert.equal(useEvent.card.type, CARD_DEFS.shan.type);
+});

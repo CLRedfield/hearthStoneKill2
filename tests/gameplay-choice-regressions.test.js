@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { CARD_DEFS } from '../src/engine/cards.js';
 import { MODE, REQ, TEAM } from '../src/engine/constants.js';
 import { GameEngine } from '../src/engine/game.js';
-import { generalPool } from '../src/engine/generals.js';
+import { generalPool, getGeneral } from '../src/engine/generals.js';
 import { cardPlayOptions } from '../src/engine/responses.js';
 import { HS_SKILLS } from '../src/engine/skills-hs.js';
 
@@ -219,6 +219,46 @@ test('Recycle lets the turn player choose exactly which cards to give', async ()
   assert.equal(request.maxCount, 2);
   assert.deepEqual(turnPlayer.hand.map((card) => card.id), ['keep']);
   assert.deepEqual(owner.hand.map((card) => card.id), ['give-b', 'give-a']);
+});
+
+test('Arcane discards the thawed card and lets its owner choose the card given to Chenyong', async () => {
+  const frozen = makeCard('frozen', 'sha', 4);
+  frozen.frozen = true;
+  frozen.frozenBy = 'chenyong';
+  const kept = makeCard('kept', 'shan', 6);
+  const given = makeCard('given', 'tao', 9);
+  const owner = makePlayer('owner', [frozen, kept, given]);
+  const chenyong = makePlayer('chenyong');
+  chenyong.skills = ['binhuo', 'aoshu'];
+  chenyong.team = TEAM.B;
+  const requests = [];
+  const engine = new GameEngine({ mode: MODE.SOLO, pack: 'hs', pace: 0 });
+  engine.players = [owner, chenyong];
+  engine.agents = {
+    owner: {
+      kind: 'human',
+      respond(req) {
+        requests.push(req);
+        if (req.type === REQ.CHOOSE_OPTION) return { value: 'give' };
+        return { selected: [given.id] };
+      },
+    },
+  };
+
+  await engine._thawPlayer(owner);
+
+  assert.deepEqual(requests.map((req) => req.type), [REQ.CHOOSE_OPTION, REQ.GUANXING]);
+  assert.deepEqual(requests[1].cards.map((card) => card.id), [kept.id, given.id]);
+  assert.equal(engine.discard.includes(frozen), true);
+  assert.deepEqual(owner.hand.map((card) => card.id), [kept.id]);
+  assert.deepEqual(chenyong.hand.map((card) => card.id), [given.id]);
+});
+
+test('Chenyong general choice text matches the current Arcane resolution', () => {
+  const bio = getGeneral('chenyong').bio;
+  assert.match(bio, /拥有者抉择/);
+  assert.match(bio, /弃掉该牌并选择1张手牌交给你/);
+  assert.doesNotMatch(bio, /冻结后你摸1张/);
 });
 
 test('Frost now reduces the next hand limit by two', async () => {
