@@ -670,7 +670,7 @@ export const HS_SKILLS = {
       let key;
       if (engine.agentOf(player)?.kind === 'ai') key = cands.find((s) => SKILLS[s]?.active) || cands[0];
       else { const r = await engine.ask(player, { type: REQ.CHOOSE_OPTION, title: `渊狱火：“渊”=${gen.name}，获得其一个技能`, options: cands.map((s) => ({ value: s, label: `${SKILLS[s].name}${SKILLS[s].active ? '（主动）' : '（锁定）'}` })) }); key = r?.value || cands[0]; }
-      // 临时授予该技能（回合结束移除）
+      // 临时授予该技能；相关结束阶段效果全部结算后再移除。
       player.skills.push(key);
       player.skillState.yuanyuBorrow = key;
       engine.log(`${player.name} 发动【渊狱火】，从“渊·${gen.name}”获得技能【${SKILLS[key].name}】！`, 'win');
@@ -685,9 +685,14 @@ export const HS_SKILLS = {
       engine.changed();
     },
     triggers: {
-      endPhase(engine, { player }) {
+      afterEndPhase(engine, { player }) {
         const k = player.skillState.yuanyuBorrow;
-        if (k) { removeFrom(player.skills, k); player.skillState.yuanyuBorrow = null; engine.log(`${player.name} 失去借得的技能【${k}】。`); }
+        if (k) {
+          removeFrom(player.skills, k);
+          player.skillState.yuanyuBorrow = null;
+          engine.log(`${player.name} 失去借得的技能【${HS_SKILLS[k]?.name || k}】。`);
+          engine.changed();
+        }
       },
     },
   },

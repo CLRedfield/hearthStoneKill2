@@ -478,8 +478,13 @@ export class GameUI {
       judge.appendChild(chip);
     });
 
-    // 盾 / 奥秘 标记
+    // 临时护盾 / 盾 / 奥秘 标记
     const tokens = el('div', { class: 'p-tokens' });
+    if (p.temporaryShields > 0) {
+      const tempShield = el('span', { class: 'token-chip temporary-shield-chip', text: `🛡 临 ${p.temporaryShields}` });
+      attachTip(tempShield, { title: '临时护盾', sub: `${p.temporaryShields} 点`, desc: '优先于“盾”抵挡伤害；损坏时不会摸牌，自己的回合结束时失去1点。', accent: '#59b9c6' });
+      tokens.appendChild(tempShield);
+    }
     if (p.shields > 0) {
       const sh = el('span', { class: 'token-chip shield-chip', text: `🛡 ${p.shields}` });
       attachTip(sh, { title: '盾', sub: `${p.shields} 枚`, desc: '每枚盾抵挡1点伤害，破盾时拥有者摸1张牌。', accent: '#5a8ed0' });

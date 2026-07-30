@@ -128,6 +128,7 @@
 /* 盾 / 奥秘 标记 */
 .p-tokens { display: flex; gap: 4px; flex-wrap: wrap; }
 .token-chip { font-size: 11px; padding: 1px 6px; border-radius: 7px; cursor: help; }
+.temporary-shield-chip { background: rgba(89,185,198,.2); border: 1px solid rgba(89,185,198,.58); color: #bcecf1; }
 .shield-chip { background: rgba(90,142,208,.22); border: 1px solid rgba(90,142,208,.55); color: #b9d4f2; }
 .secret-chip { background: rgba(177,134,255,.2); border: 1px solid rgba(177,134,255,.5); color: #d8c6ff; }
 .discard-selectable { cursor: pointer; transition: transform .14s ease, filter .14s ease, box-shadow .14s ease; }

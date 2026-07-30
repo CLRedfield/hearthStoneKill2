@@ -244,6 +244,7 @@ html[data-theme='light'] .eq-range { color: #765e16; }
 html[data-theme='light'] .judge-chip { color: #68406f; }
 html[data-theme='light'] .skill-tag { color: #514078; }
 html[data-theme='light'] .shield-chip { color: #315b8b; }
+html[data-theme='light'] .temporary-shield-chip { color: #24707a; }
 html[data-theme='light'] .secret-chip { color: #62448c; }
 /* 触屏：增大可点击控件 */
 @media (pointer: coarse) {

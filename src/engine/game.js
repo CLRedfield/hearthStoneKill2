@@ -166,6 +166,7 @@ export class GameEngine {
         equips2: { weapon: null, armor: null }, // 骨架（玛洛加尔）：第二件武器/防具
         judge: [],            // 判定区（延时锦囊）
         secrets: [],          // 奥秘区（炉石杀）
+        temporaryShields: this.config.pack === 'hs' ? 3 : 0, // 炉石杀开局护盾；自己的回合结束时衰减1点
         shields: 0,           // 盾计数（每枚抵挡1点伤害）
         shieldCards: [],      // 作为“盾”的实体牌（吞噬：他人手牌置于此）
         pile: [],             // 武将牌上的牌（火眼/沉落/双生魔法/邪火 等）
@@ -1109,6 +1110,14 @@ export class GameEngine {
     delete player.flags.immuneAllTurn; // 命运之轮：免疫只持续到本回合结束
     await triggerSkill(this, 'endPhase', { player });
     await triggerSkill(this, 'anyEndPhase', { turnPlayer: player });
+    // 渊狱火借得的技能可能在 endPhase / anyEndPhase 生效，须等两类效果都结算完再失去。
+    await triggerSkill(this, 'afterEndPhase', { player });
+    // 炉石杀临时护盾在持有者自己的回合结束时衰减。
+    if ((player.temporaryShields || 0) > 0) {
+      player.temporaryShields -= 1;
+      this.log(`${player.name} 的临时护盾在回合结束时失去1点（剩余 ${player.temporaryShields}）。`);
+      this.changed();
+    }
     await this.resolvePendingBattlehorses();
     await this.pause(200);
   }
@@ -1227,6 +1236,14 @@ export class GameEngine {
       if (esino.immuneCharges <= 0) _removeArmor(esino);
       await this.pause(300); return;
     }
+    // 临时护盾：优先于“盾”逐点抵挡，损坏时不会摸牌。
+    if ((target.temporaryShields || 0) > 0 && amount > 0) {
+      const blocked = Math.min(target.temporaryShields, amount);
+      target.temporaryShields -= blocked;
+      amount -= blocked;
+      this.log(`${target.name} 的临时护盾抵挡 ${blocked} 点伤害（剩余 ${target.temporaryShields}）。`, 'good');
+    }
+    if (amount <= 0) { this.changed(); await this.pause(280); return; }
     // 盾：逐点抵挡，破盾则拥有者摸1（实体盾牌进入弃牌堆）
     while (target.shields > 0 && amount > 0) {
       target.shields -= 1; amount -= 1;
@@ -1498,6 +1515,7 @@ export class GameEngine {
     player.equips2 = { weapon: null, armor: null }; // 骨架（玛洛加尔）副装备栏也要清算，否则死亡时凭空消失
     player.judge = [];
     player.secrets = [];
+    player.temporaryShields = 0;
     player.shieldCards = []; player.shields = 0;
     const toPile = [];
     for (const c of all) { if (!this._routeLeavePlay(c, player)) toPile.push(c); }
@@ -1712,6 +1730,7 @@ export class GameEngine {
           huxinWuxie: p.skillState.huxinWuxie || 0,
           yoggAwake: !!p.skillState.yoggAwake,
         },
+        temporaryShields: p.temporaryShields || 0,
         shields: p.shields || 0,
         secretCount: (p.secrets || []).length,
         secrets: p.id === viewerId ? p.secrets : null, // 奥秘对他人隐藏

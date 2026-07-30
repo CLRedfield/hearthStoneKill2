@@ -77,6 +77,7 @@ export async function triggerSkill(engine, event, data) {
     case 'drawCount': { const n = await onDrawCount(engine, data); return await hsFold(engine, 'drawCount', data, n); }
     case 'handLimit': return await hsFold(engine, 'handLimit', data, data.base);
     case 'endPhase': await onEndPhase(engine, data); await hsRun(engine, 'endPhase', data, data.player); return;
+    case 'afterEndPhase': await hsRun(engine, 'afterEndPhase', data, data.player); return;
     case 'usedCard': await hsRun(engine, 'usedCard', data, data.player); return;
     case 'recovered': await hsRun(engine, 'recovered', data, data.player); return;
     case 'beforeDraw': await hsRun(engine, 'beforeDraw', data, data.player); return;
