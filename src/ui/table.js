@@ -307,6 +307,10 @@ export class GameUI {
       const counter = Math.min(state.huxinWuxie || 0, cap);
       add({ key: 'heartguard', label: '护心', value: `${dodge + counter}/${cap * 2}`, color: '#8880c5', desc: `本轮额度：闪避 ${dodge}/${cap}，法术反制 ${counter}/${cap}。` });
     }
+    if (skills.has('shikongmen')) {
+      const count = state.shikongmenCount ?? p.skillState?.shikongmenCount ?? 0;
+      add({ key: 'portal', label: '时空', value: `${count}/4`, color: '#8776c8', desc: `已累计使用 ${count} 张武将牌上的牌；每累计4张可令一名角色获得额外回合。` });
+    }
     if (skills.has('shuangsheng')) {
       const twins = pile.filter((c) => c.twinStoredBy === p.id);
       const ready = twins.filter((c) => c.twinReady);
@@ -316,7 +320,7 @@ export class GameUI {
       add({
         key: 'twin', label: '双生', value: twins.length, color: '#6f8ed2', cards: twins,
         preview, active: replayActive,
-        desc: `武将牌上的双生牌：${named(twins)}。可用 ${ready.length} 张，待下回合 ${twins.length - ready.length} 张。`,
+        desc: `武将牌上的双生牌：${named(twins)}。可用 ${ready.length} 张，待下回合 ${twins.length - ready.length} 张；使用后弃置。`,
       });
     }
     return items;
@@ -1159,13 +1163,18 @@ export class GameUI {
         this._resolve({ type: 'skill', skill, cards, targetId: tgt });
         return;
       }
-      if (skill === 'shikongmen') {
-        const stored = (me.pile || []).filter((c) => c.twinStoredBy === me.id);
-        const cards = await this._pickCards('时空之门：选择弃置的4张双生牌', stored, 4, 4);
+      if (skill === 'tonghua') {
+        const cards = await this._pickCards('同化：弃两张牌', discardable, 2, 2);
         if (!cards) return;
+        const tgt = await this._pickPlayer('同化：选择体力上限+1并回复1点的角色', engine.alivePlayers);
+        if (!tgt) return;
+        this._resolve({ type: 'skill', skill, cards, targetId: tgt });
+        return;
+      }
+      if (skill === 'shikongmen') {
         const targetId = await this._pickPlayer('时空之门：选择获得额外回合的角色', engine.alivePlayers);
         if (!targetId) return;
-        this._resolve({ type: 'skill', skill, cards, targetId });
+        this._resolve({ type: 'skill', skill, targetId });
         return;
       }
       if (skill === 'xintu') {
@@ -1184,7 +1193,7 @@ export class GameUI {
       // 冰封：选至多3名角色
       if (skill === 'bingfeng') {
         const all = engine.alivePlayers.filter((p) => p.id !== this.viewerId);
-        const picked = await this._pickPlayers('冰封：选择至多3名角色', all, 1, Math.min(3, all.length));
+        const picked = await this._pickPlayers('冰封：选择至多3名角色（各冻结 max（其手牌数-3，2）张）', all, 1, Math.min(3, all.length));
         if (picked?.length) this._resolve({ type: 'skill', skill, targetIds: picked });
         return;
       }

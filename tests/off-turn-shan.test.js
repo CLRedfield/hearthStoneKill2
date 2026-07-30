@@ -61,6 +61,31 @@ test('卡德加在回合外使用闪时，双生魔法将实体牌置于武将�
   assert.equal(kadgar.flags.cardsUsed, undefined, '回合外响应不应污染其下个回合的用牌计数');
 });
 
+test('卡德加在回合外使用桃救援时，双生魔法将实体牌置于武将牌上', async () => {
+  const dying = player('dying');
+  dying.hp = 0;
+  const kadgar = player('kadgar', ['shuangsheng']);
+  const tao = card('off-turn-tao', 'tao', 'heart', 3);
+  kadgar.hand.push(tao);
+  const engine = new GameEngine({ mode: 'test', pack: 'hs', pace: 0 });
+  engine.players = [dying, kadgar];
+  engine.turnOwner = dying;
+  engine.pause = async () => {};
+  engine.ask = async (asked, req) => (
+    asked === kadgar && req.type === REQ.ASK_PEACH ? { card: tao } : null
+  );
+
+  await engine._dying(dying, null);
+
+  assert.equal(dying.hp, 1);
+  assert.deepEqual(kadgar.hand, []);
+  assert.deepEqual(kadgar.pile, [tao]);
+  assert.equal(tao.twinStoredBy, kadgar.id);
+  assert.equal(tao.twinReady, false);
+  assert.equal(engine.discard.includes(tao), false);
+  assert.equal(kadgar.flags.cardsUsed, undefined);
+});
+
 test('回合外使用闪会触发奇迹，并被翻找标记为已使用', async () => {
   const attacker = player('attacker');
   const responder = player('responder', ['edwinqj', 'fanzhao']);

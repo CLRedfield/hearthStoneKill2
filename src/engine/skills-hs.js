@@ -413,21 +413,24 @@ export const HS_SKILLS = {
   // ===== 洛克霍拉（部落）=====
   bingfeng: {
     name: '冰封', active: true, perTurn: true,
-    desc: '出牌阶段指定至多三名角色，各冻结等同于你手牌数-1 的手牌（每回合一次）。',
+    desc: '出牌阶段指定至多三名角色，各冻结 max（其手牌数-3，2）张手牌（每回合一次）。',
     async action(engine, { player, move }) {
-      const ids = move.targetIds || (move.targetId ? [move.targetId] : []);
-      const targets = ids.map((id) => engine.playerById(id)).filter(Boolean).slice(0, 3);
+      const ids = [...new Set(move.targetIds || (move.targetId ? [move.targetId] : []))];
+      const targets = ids.map((id) => engine.playerById(id)).filter((t) => t?.alive && t !== player).slice(0, 3);
       if (!targets.length) return;
       player.flags.bingfengUsed = true;
-      const n = Math.max(0, player.hand.length - 1);
-      for (const t of targets) { engine.log(`${player.name} 对 ${t.name} 发动【冰封】，冻结 ${n} 张。`, 'play'); engine.freezeHand(t, n); }
+      for (const t of targets) {
+        const n = Math.max(t.hand.length - 3, 2);
+        engine.log(`${player.name} 对 ${t.name} 发动【冰封】，冻结 ${Math.min(n, t.hand.length)} 张。`, 'play');
+        engine.freezeHand(t, n);
+      }
     },
   },
   fusheng: {
-    name: '复生', desc: '锁定技：你体力≤2时，摸牌阶段多摸1张，且【杀】多造成1点伤害。',
+    name: '复生', desc: '锁定技：你体力≤3时，摸牌阶段多摸1张，且【杀】多造成1点伤害。',
     triggers: {
-      drawCount: (engine, { player, base }) => (player.hp <= 2 ? base + 1 : base),
-      shaDamage: (engine, { user, base }) => (user.hp <= 2 ? base + 1 : base),
+      drawCount: (engine, { player, base }) => (player.hp <= 3 ? base + 1 : base),
+      shaDamage: (engine, { user, base }) => (user.hp <= 3 ? base + 1 : base),
     },
   },
 
@@ -1045,15 +1048,36 @@ export const HS_SKILLS = {
 
   // ===== 机械克苏恩（古神）=====
   zhongjie: {
-    name: '终结', desc: '锁定技：当你没有手牌、装备、奥秘且判定区无牌时，你每受到一次伤害便消灭一名角色。',
+    name: '终结', desc: '锁定技：每当你受到一次伤害，若你没有手牌、装备、奥秘且判定区无牌，则对一名角色造成等同于其当前体力值的强制伤害；然后你摸一张牌。',
     triggers: {
       async damaged(engine, { player }) {
         const empty = !player.hand.length && !Object.values(player.equips).some(Boolean) && !(player.secrets || []).length && !player.judge.length;
-        if (!empty) return;
-        const others = engine.alivePlayers.filter((p) => p !== player);
-        const victim = others.filter((p) => !engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp)[0] || others.sort((a, b) => a.hp - b.hp)[0];
-        if (victim) { engine.log(`${player.name} 发动【终结】，消灭 ${victim.name}！`, 'death'); victim.hp = 0; await engine._dying(victim, player); }
+        if (empty) {
+          const others = engine.alivePlayers.filter((p) => p !== player);
+          const victim = others.filter((p) => !engine.isAlly(player, p)).sort((a, b) => a.hp - b.hp)[0] || others.sort((a, b) => a.hp - b.hp)[0];
+          if (victim) {
+            const amount = victim.hp;
+            engine.log(`${player.name} 发动【终结】，对 ${victim.name} 造成 ${amount} 点强制伤害！`, 'death');
+            await engine.dealDamage({ source: player, target: victim, amount });
+          }
+        }
+        engine.log(`${player.name} 因【终结】摸一张牌。`, 'good');
+        engine.drawCards(player, 1);
       },
+    },
+  },
+  tonghua: {
+    name: '同化', active: true,
+    desc: '出牌阶段弃置两张牌，使一名角色增加1点体力上限并回复1点体力。',
+    async action(engine, { player, move }) {
+      const cards = [...new Set((move.cards || []).map((ref) => findOnPlayer(player, ref)).filter(Boolean))];
+      const target = engine.playerById(move.targetId);
+      if (cards.length < 2 || !target?.alive) return;
+      engine.discardCards(player, cards.slice(0, 2));
+      target.maxHp += 1;
+      engine.changed();
+      engine.log(`${player.name} 对 ${target.name} 发动【同化】，其体力上限+1并回复1点体力。`, 'good');
+      await engine.recover(target, 1);
     },
   },
 
@@ -1486,9 +1510,11 @@ export const HS_SKILLS = {
 
   // ===== 卡德加（联盟）=====
   shuangsheng: {
-    name: '双生魔法', desc: '锁定技：你每回合使用的基本/锦囊牌都置于武将牌上，将在你的下个回合开始时可以被使用。',
+    name: '双生魔法', desc: '锁定技：你使用的基本/锦囊牌（包括回合外打出的牌）都置于武将牌上，在你的下个回合开始时可以使用；从武将牌使用后弃置。',
     triggers: {
-      usedCard(engine, { player, card }) {
+      usedCard(engine, { player, card, sourcePile }) {
+        // 从双生牌框使用的牌结算后应正常弃置，不能再次被双生魔法收回。
+        if (sourcePile === 'twin') return;
         const ty = CARD_DEFS[card.kind]?.type;
         if (ty !== CARD_TYPE.BASIC && ty !== CARD_TYPE.TRICK) return;
         const reals = card.virtual ? (card.sourceCards || []) : [card];
@@ -1520,26 +1546,29 @@ export const HS_SKILLS = {
   },
   shikongmen: {
     name: '时空之门', active: true, perTurn: true,
-    desc: '回合技：弃掉武将牌上的4张牌，使一名角色获得1个额外回合。',
+    desc: '回合技：每累计使用4张武将牌上的牌，你可使一名角色获得1个额外回合。',
+    triggers: {
+      usedCard(engine, { player, sourcePile }) {
+        if (sourcePile !== 'twin') return;
+        player.skillState.shikongmenCount = (player.skillState.shikongmenCount || 0) + 1;
+        const count = player.skillState.shikongmenCount;
+        const progress = count >= 4 ? '，可以发动！' : `（${count}/4）`;
+        engine.log(`${player.name} 的【时空之门】累计使用 ${count} 张武将牌上的牌${progress}。`, count >= 4 ? 'good' : 'system');
+        engine.changed();
+      },
+    },
     async action(engine, { player, move }) {
       if (player.flags.shikongmenUsed) return;
-      const stored = (player.pile || []).filter((c) => c.twinStoredBy === player.id);
-      const ids = [...new Set(move.cards || [])];
-      const chosen = ids.map((id) => stored.find((c) => c.id === id)).filter(Boolean);
+      const count = player.skillState.shikongmenCount || 0;
       const target = engine.playerById(move.targetId);
-      if (chosen.length !== 4 || !target?.alive) {
-        engine.log('【时空之门】需要弃置4张武将牌上的牌并选择一名存活角色。', 'system');
+      if (count < 4 || !target?.alive) {
+        engine.log('【时空之门】需要累计使用4张武将牌上的牌并选择一名存活角色。', 'system');
         return;
       }
       player.flags.shikongmenUsed = true;
-      chosen.forEach((c) => {
-        removeFrom(player.pile, c);
-        delete c.twinStoredBy;
-        delete c.twinReady;
-      });
-      engine.toDiscard(chosen, player);
+      player.skillState.shikongmenCount = count - 4;
       engine.grantExtraTurn(target);
-      engine.log(`${player.name} 发动【时空之门】，弃置4张牌，令 ${target.name} 获得一个额外回合！`, 'play');
+      engine.log(`${player.name} 发动【时空之门】，令 ${target.name} 获得一个额外回合！`, 'play');
       engine.changed();
     },
   },

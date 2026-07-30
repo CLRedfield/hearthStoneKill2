@@ -7,7 +7,7 @@ import { GENERAL_LIST, getGeneral, generalPool } from './generals.js';
 import {
   Emitter, shuffle, sleep, clamp, removeFrom, removeFromHand, clearCardFreeze, sample, uid,
 } from '../util.js';
-import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge, nullified } from './effects.js';
+import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge, nullified, settleBasicResponse } from './effects.js';
 import { SKILLS, triggerSkill, hasSkill } from './skills.js';
 import { discardableCards } from './zones.js';
 
@@ -1030,7 +1030,15 @@ export class GameEngine {
     const replayable = (cdef.type === CARD_TYPE.BASIC || cdef.type === CARD_TYPE.TRICK) && cardAs(card) !== 'jiu' && card.kind !== 'wuxie';
     const doRishi = player.flags.rishiPending && replayable;
     if (doRishi) player.flags.rishiPending = false;
-    await resolveCard(this, { user: player, card, targets, options: move.options || {} });
+    // 双生牌离开武将牌后即失去双生标记；本次来源会随 usedCard 事件传递，供时空之门计数。
+    if (fromTwin) {
+      delete card.twinStoredBy;
+      delete card.twinReady;
+    }
+    await resolveCard(this, {
+      user: player, card, targets, options: move.options || {},
+      sourcePile: fromTwin ? 'twin' : fromXintu ? 'xintu' : null,
+    });
     if (doRishi && player.alive && !this.over) {
       this.log(`${player.name}【日蚀】令【${card.name}】再使用一次！`, 'good');
       const v = virtualCard(card.kind, [], { suit: card.suit, number: card.number, red: card.red });
@@ -1388,19 +1396,16 @@ export class GameEngine {
           this.log(`${responder.name} 的【${card.name}】不能用于救援 ${player.name}。`, 'system');
           break;
         }
-        const sources = card.virtual ? card.sourceCards : [card];
-        sources.forEach((c) => removeFromHand(responder.hand, c));
-        this.fx('use', {
-          userId: responder.id,
-          card: fxCard(card),
-          targetIds: [player.id],
+        await settleBasicResponse(this, responder, card, {
+          targets: [player],
           verb: '救援',
+          beforeUsed: async () => {
+            this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
+            player.hp += 1;
+            this.changed();
+            await this.pause(350);
+          },
         });
-        this.toDiscard([card], responder);
-        this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
-        player.hp += 1;
-        this.changed();
-        await this.pause(350);
       }
       if (player.hp > 0) break;
     }
@@ -1696,6 +1701,7 @@ export class GameEngine {
         pile: p.pile || [],
         blades: p.blades || 0,
         resourceState: {
+          shikongmenCount: p.skillState.shikongmenCount || 0,
           shardCount: p.skillState.shardCount || 0,
           relicCount: p.skillState.relicCount || 0,
           treasures: [...(p.skillState.treasures || [])],

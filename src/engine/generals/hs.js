@@ -91,7 +91,7 @@ export const HS_GENERALS = {
   rokhara: {
     id: 'rokhara', name: '洛克霍拉', faction: FACTION.HORDE, hp: 5, title: '冰雪之王',
     skills: ['bingfeng', 'fusheng'],
-    bio: '冰封：指定一名角色，冻结其（你手牌数-1，至多3）张手牌。复生（锁定技）：体力≤2时摸牌阶段多摸1张且【杀】多造成1点伤害。',
+    bio: '冰封：指定至多3名角色，各冻结 max（其手牌数-3，2）张手牌。复生（锁定技）：体力≤3时摸牌阶段多摸1张且【杀】多造成1点伤害。',
   },
   bru: {
     id: 'bru', name: '布鲁坎', faction: FACTION.HORDE, hp: 4, title: '元素使者',
@@ -122,8 +122,8 @@ export const HS_GENERALS = {
   },
   mechcthun: {
     id: 'mechcthun', name: '机械克苏恩', faction: FACTION.OLDGOD, hp: 3, title: '机械之劫',
-    skills: ['zhongjie'],
-    bio: '终结（锁定技）：当你没有手牌、装备、奥秘且判定区无牌时，每受一次伤害便消灭一名角色。',
+    skills: ['zhongjie', 'tonghua'],
+    bio: '终结（锁定技）：每次受伤时，若所有牌区均为空，则对一名角色造成等同其当前体力值的强制伤害；结算后总会摸1张牌。同化：弃2张牌，令一名角色体力上限+1并回复1点。',
   },
   nzoth: {
     id: 'nzoth', name: '恩佐斯', faction: FACTION.OLDGOD, hp: 5, title: '深渊之神',
@@ -175,7 +175,7 @@ export const HS_GENERALS = {
   kadgar: {
     id: 'kadgar', name: '卡德加', faction: FACTION.ALLIANCE, hp: 4, title: '守护者',
     skills: ['shuangsheng', 'shikongmen'],
-    bio: '双生魔法（锁定技）：使用的基本/锦囊牌置于武将牌上，下个回合开始后可以使用。时空之门（回合技）：弃置武将牌上的4张牌，令一名角色获得一个额外回合。',
+    bio: '双生魔法（锁定技）：使用的基本/锦囊牌（包括回合外打出的牌）置于武将牌上，下个回合开始后可以使用，使用后弃置。时空之门（回合技）：每累计使用4张武将牌上的牌，可令一名角色获得一个额外回合。',
   },
   alleria: {
     id: 'alleria', name: '奥蕾莉亚', faction: FACTION.ALLIANCE, hp: 3, title: '光明游侠',

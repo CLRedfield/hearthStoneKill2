@@ -6,6 +6,7 @@ import { CARD_DEFS } from '../src/engine/cards.js';
 import { PHASE } from '../src/engine/constants.js';
 import { resolveCard } from '../src/engine/effects.js';
 import { HS_SKILLS } from '../src/engine/skills-hs.js';
+import { activeSkillOptions } from '../src/engine/responses.js';
 import { GameUI } from '../src/ui/table.js';
 
 function player(id, skills = []) {
@@ -58,22 +59,18 @@ test('双生魔法保存实体牌，并在下个回合解锁后允许从牌框�
   });
 
   assert.deepEqual(kadgar.hand.map((c) => c.id), ['draw-1', 'draw-2', 'draw-3', 'draw-4']);
-  assert.deepEqual(kadgar.pile.map((c) => c.id), ['used']);
-  assert.equal(used.twinReady, false, '牌框中的牌使用后应等待下个回合重新解锁');
-  assert.equal(engine.discard.includes(used), false);
+  assert.deepEqual(kadgar.pile, []);
+  assert.equal(used.twinStoredBy, undefined);
+  assert.equal(used.twinReady, undefined);
+  assert.equal(engine.discard.includes(used), true, '牌框中的牌使用后应进入弃牌堆');
+  assert.equal(kadgar.skillState.shikongmenCount, 1);
 });
 
-test('时空之门弃置4张双生牌，并在额外回合后恢复正常座次', async () => {
+test('时空之门累计使用4张双生牌后获得发动次数，并在额外回合后恢复正常座次', async () => {
   const kadgar = player('kadgar', ['shuangsheng', 'shikongmen']);
   const next = player('next');
   const extra = player('extra');
-  const stored = [
-    card('stored-1', 'sha', 'spade', 1),
-    card('stored-2', 'shan', 'heart', 2),
-    card('stored-3', 'tao', 'diamond', 3),
-    card('stored-4', 'wuzhong', 'club', 4),
-    card('stored-5', 'jiu', 'spade', 5),
-  ];
+  const stored = Array.from({ length: 4 }, (_, i) => card(`stored-${i + 1}`, 'wuzhong', 'club', i + 1));
   stored.forEach((c) => {
     c.twinStoredBy = kadgar.id;
     c.twinReady = true;
@@ -84,15 +81,28 @@ test('时空之门弃置4张双生牌，并在额外回合后恢复正常座次'
   engine.players = [kadgar, next, extra];
   engine.turnIndex = 0;
   engine.turnOwner = kadgar;
+  engine.phase = PHASE.PLAY;
+  engine.deck = Array.from({ length: 8 }, (_, i) => card(`draw-${i + 1}`, i % 2 ? 'shan' : 'sha', 'spade', i + 1));
+
+  for (const twin of stored) {
+    await engine._handlePlay(kadgar, {
+      type: 'play', card: twin, targets: [kadgar], sourcePile: 'twin',
+    });
+  }
+
+  assert.equal(kadgar.skillState.shikongmenCount, 4);
+  assert.equal(activeSkillOptions(engine, kadgar).some((option) => option.skill === 'shikongmen'), true);
+  assert.deepEqual(kadgar.pile, []);
+  assert.deepEqual(engine.discard.map((c) => c.id), stored.map((c) => c.id));
 
   await HS_SKILLS.shikongmen.action(engine, {
     player: kadgar,
-    move: { cards: stored.slice(0, 4).map((c) => c.id), targetId: extra.id },
+    move: { targetId: extra.id },
   });
 
+  assert.equal(kadgar.skillState.shikongmenCount, 0);
   assert.equal(kadgar.flags.shikongmenUsed, true);
-  assert.deepEqual(kadgar.pile.map((c) => c.id), ['stored-5']);
-  assert.deepEqual(engine.discard.map((c) => c.id), ['stored-1', 'stored-2', 'stored-3', 'stored-4']);
+  assert.equal(activeSkillOptions(engine, kadgar).some((option) => option.skill === 'shikongmen'), false);
 
   engine._advanceTurn();
   assert.equal(engine.current, extra, '额外回合应紧接当前回合执行');

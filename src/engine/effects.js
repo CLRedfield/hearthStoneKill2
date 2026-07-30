@@ -187,6 +187,7 @@ export async function resolveCard(engine, ctx) {
         player: ctx.user,
         card: ctx.card,
         dealtDamage: damageFrame.dealtDamage,
+        sourcePile: ctx.sourcePile || null,
       });
       // 战马的“置入弃牌堆时”优先于用牌后的巨龙之魂奖励结算。
       if (engine.resolvePendingBattlehorses) await engine.resolvePendingBattlehorses();
@@ -204,17 +205,20 @@ export async function resolveCard(engine, ctx) {
   return out;
 }
 
-// 实体【闪】通过响应链使用时，也应进入与主动用牌一致的“成功使用”后处理。
+// 基本牌通过响应链使用时，也应进入与主动用牌一致的“成功使用”后处理。
 // 仅累计当前回合角色自己的 cardsUsed，避免回合外响应污染其下个回合计数。
-async function settleShanResponse(engine, player, card) {
+export async function settleBasicResponse(engine, player, card, {
+  targets = [], verb = '打出', beforeUsed = null,
+} = {}) {
   const reals = card.virtual ? (card.sourceCards || []) : [card];
   reals.forEach((c) => removeFromHand(player.hand, c));
 
   const previousActor = engine._actingUser;
   engine._actingUser = player;
   try {
-    useFx(engine, player, card, [], { verb: '打出' });
+    useFx(engine, player, card, targets, { verb });
     engine.toDiscard([card], player);
+    if (beforeUsed) await beforeUsed();
 
     if (engine.turnOwner === player) {
       (engine.turnUsedCards ||= []).push(...reals);
@@ -1364,7 +1368,7 @@ export async function getOneDodge(engine, target, ctx) {
       if (ally === target || ally.faction !== 'wei') continue;
       const r = await engine.ask(ally, { type: REQ.ASK_DODGE, forSkill: 'hujia', source: ctx.source, lord: target, title: `护驾：是否替 ${target.name} 打出【闪】？` });
       if (r?.card) {
-        await settleShanResponse(engine, ally, r.card);
+        await settleBasicResponse(engine, ally, r.card);
         engine.log(`${ally.name} 发动【护驾】替 ${target.name} 打出【闪】。`, 'good');
         return { shan: r.card.virtual ? null : r.card };
       }
@@ -1372,7 +1376,7 @@ export async function getOneDodge(engine, target, ctx) {
   }
   const resp = await engine.ask(target, { type: REQ.ASK_DODGE, ...ctx, title: `${target.name}：是否打出【闪】？` });
   if (resp?.card) {
-    await settleShanResponse(engine, target, resp.card);
+    await settleBasicResponse(engine, target, resp.card);
     applyShanEffect(engine, target, resp.card, ctx);
     return { shan: resp.card.virtual ? null : resp.card };
   }
@@ -1395,21 +1399,19 @@ async function askSha(engine, player, ctx) {
       if (ally === player || ally.faction !== 'shu') continue;
       const r = await engine.ask(ally, { type: REQ.ASK_SHA, forSkill: 'jijiang', lord: player, title: `激将：是否替 ${player.name} 打出【杀】？` });
       if (r?.card) {
-        const srcs = r.card.virtual ? r.card.sourceCards : [r.card];
-        srcs.forEach((c) => removeFromHand(ally.hand, c));
-        useFx(engine, ally, r.card, ctx.against ? [ctx.against] : [], { verb: '打出' });
-        engine.toDiscard([r.card], ally);
-        engine.log(`${ally.name} 发动【激将】替 ${player.name} 打出【杀】。`, 'good');
+        await settleBasicResponse(engine, ally, r.card, {
+          targets: ctx.against ? [ctx.against] : [],
+          beforeUsed: () => engine.log(`${ally.name} 发动【激将】替 ${player.name} 打出【杀】。`, 'good'),
+        });
         return true;
       }
     }
   }
   const resp = await engine.ask(player, { type: REQ.ASK_SHA, ...ctx, title: `${player.name}：是否打出【杀】？` });
   if (resp?.card) {
-    const sources = resp.card.virtual ? resp.card.sourceCards : [resp.card];
-    sources.forEach((c) => removeFromHand(player.hand, c));
-    useFx(engine, player, resp.card, ctx.against ? [ctx.against] : [], { verb: '打出' });
-    engine.toDiscard([resp.card], player);
+    await settleBasicResponse(engine, player, resp.card, {
+      targets: ctx.against ? [ctx.against] : [],
+    });
     return true;
   }
   return false;

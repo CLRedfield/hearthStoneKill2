@@ -147,6 +147,7 @@ export function activeSkillOptions(engine, p) {
   if (can('linghun') && !p.flags.linghunUsed && others) out.push({ skill: 'linghun', name: '灵魂分流' });
   if (can('xixue') && !p.flags.xixueUsed && engine.alivePlayers.length >= 2) out.push({ skill: 'xixue', name: '吸血' });
   if (can('xiehuo') && !p.flags.xiehuoUsed && discardable.length >= 2 && others) out.push({ skill: 'xiehuo', name: '邪火' });
+  if (can('tonghua') && discardable.length >= 2) out.push({ skill: 'tonghua', name: '同化' });
   if (can('shenpan') && !p.flags.shenpanUsed && others) out.push({ skill: 'shenpan', name: '审判烈焰' });
   if (can('bingfeng') && !p.flags.bingfengUsed && others) out.push({ skill: 'bingfeng', name: '冰封' });
   if (can('xuwu') && !p.flags.xuwuUsed && discardable.length && others) out.push({ skill: 'xuwu', name: '虚无' });
@@ -168,8 +169,7 @@ export function activeSkillOptions(engine, p) {
     return isBlack(c.suit) && (ty === CARD_TYPE.BASIC || ty === CARD_TYPE.TRICK);
   });
   if (can('xintu') && !p.skillState.xintuUsed && xintuCards.length) out.push({ skill: 'xintu', name: '信徒(限)' });
-  const twinCards = (p.pile || []).filter((c) => c.twinStoredBy === p.id);
-  if (can('shikongmen') && !p.flags.shikongmenUsed && twinCards.length >= 4) {
+  if (can('shikongmen') && !p.flags.shikongmenUsed && (p.skillState?.shikongmenCount || 0) >= 4) {
     out.push({ skill: 'shikongmen', name: '时空之门' });
   }
   if (can('mingyun') && !p.flags.mingyunUsed) out.push({ skill: 'mingyun', name: '命运之轮' });

@@ -279,11 +279,9 @@ export class AIAgent {
     // 按“行为别名”匹配（兼容炉石变体锦囊：behaves 别名或同 kind）
     const handOfBeh = (beh) => hand.find((c) => !c.frozen && (CARD_DEFS[c.kind]?.behaves === beh || c.kind === beh));
 
-    // 时空之门：有足够双生牌时优先为自己开启额外回合
-    const portalCards = (player.pile || []).filter((c) => c.twinStoredBy === player.id);
-    if (hasSkill(player, 'shikongmen') && !player.flags.shikongmenUsed && portalCards.length >= 4) {
-      const cards = [...portalCards].sort((a, b) => cardValue(a) - cardValue(b)).slice(0, 4).map((c) => c.id);
-      return { type: 'skill', skill: 'shikongmen', cards, targetId: player.id };
+    // 时空之门：累计使用4张双生牌后优先为自己开启额外回合
+    if (hasSkill(player, 'shikongmen') && !player.flags.shikongmenUsed && (player.skillState?.shikongmenCount || 0) >= 4) {
+      return { type: 'skill', skill: 'shikongmen', targetId: player.id };
     }
 
     // 【信徒】发动后的本回合优先逐张重打武将牌上的牌；每张牌只能离开牌框一次。
@@ -310,7 +308,7 @@ export class AIAgent {
       }
     }
 
-    // 【双生魔法】在下回合解锁后，可逐张从武将牌上使用；使用后等待下回合再次解锁。
+    // 【双生魔法】在下回合解锁后，可逐张从武将牌上使用；使用后进入弃牌堆。
     const twinStored = (player.pile || [])
       .filter((c) => c.twinStoredBy === player.id && c.twinReady)
       .sort((a, b) => cardValue(b) - cardValue(a));
@@ -465,6 +463,12 @@ export class AIAgent {
       const give = [...hand].sort((a, b) => cardValue(a) - cardValue(b)).slice(0, 2).map((c) => c.id);
       if (tgt && give.length >= 2) return { type: 'skill', skill: 'xiehuo', cards: give, targetId: tgt.id };
     }
+    // 机械克苏恩·同化：用低价值牌强化最虚弱的己方角色
+    if (acts.some((a) => a.skill === 'tonghua')) {
+      const give = [...discardableCards(player)].sort((a, b) => cardValue(a) - cardValue(b)).slice(0, 2).map((c) => c.id);
+      const tgt = [player, ...allies].sort((a, b) => a.hp - b.hp || a.maxHp - b.maxHp)[0];
+      if (tgt && give.length === 2) return { type: 'skill', skill: 'tonghua', cards: give, targetId: tgt.id };
+    }
     // 炼狱（加拉克苏斯·限定）：≥2 名敌人体力>2 时一锤定音
     if (acts.some((a) => a.skill === 'lianyu') && enemies.filter((e) => e.hp > 2).length >= 2) {
       return { type: 'skill', skill: 'lianyu' };
@@ -475,7 +479,7 @@ export class AIAgent {
       if (ids.length) return { type: 'skill', skill: 'shenpan', targetIds: ids };
     }
     // 冰封（洛克霍拉）：冻结手牌多的敌人
-    if (acts.some((a) => a.skill === 'bingfeng') && hand.length >= 2 && enemies.length) {
+    if (acts.some((a) => a.skill === 'bingfeng') && enemies.length) {
       const tgts = [...enemies].sort((a, b) => b.hand.length - a.hand.length).slice(0, 3);
       if (tgts.length) return { type: 'skill', skill: 'bingfeng', targetIds: tgts.map((t) => t.id) };
     }
