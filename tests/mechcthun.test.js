@@ -53,23 +53,37 @@ test('终结以目标当前生命值造成强制伤害，且空场条件无论�
   assert.equal(draws, 2, '未触发反击时仍摸一张牌');
 });
 
-test('同化弃置两张牌，使存活目标增加体力上限并回复体力', async () => {
+test('同化每回合限一次：弃置两张牌，使存活目标增加体力上限并回复体力', async () => {
   const first = card('first');
   const second = card('second', 'shan');
-  const mech = player('mechcthun', { hp: 3, maxHp: 3, hand: [first, second] });
+  const third = card('third');
+  const fourth = card('fourth', 'shan');
+  const mech = player('mechcthun', { hp: 3, maxHp: 3, hand: [first, second, third, fourth] });
   mech.skills = ['tonghua'];
   const target = player('target', { hp: 2, maxHp: 4 });
   const engine = new GameEngine({ mode: MODE.SOLO, pack: 'hs', pace: 0 });
   engine.players = [mech, target];
 
+  assert.equal(HS_SKILLS.tonghua.perTurn, true);
   assert.equal(activeSkillOptions(engine, mech).some((option) => option.skill === 'tonghua'), true);
   await HS_SKILLS.tonghua.action(engine, {
     player: mech,
     move: { cards: [first.id, second.id], targetId: target.id },
   });
 
-  assert.deepEqual(mech.hand, []);
+  assert.deepEqual(mech.hand, [third, fourth]);
   assert.deepEqual(engine.discard, [first, second]);
+  assert.equal(target.maxHp, 5);
+  assert.equal(target.hp, 3);
+  assert.equal(mech.flags.tonghuaUsed, true);
+  assert.equal(activeSkillOptions(engine, mech).some((option) => option.skill === 'tonghua'), false);
+
+  await HS_SKILLS.tonghua.action(engine, {
+    player: mech,
+    move: { cards: [third.id, fourth.id], targetId: target.id },
+  });
+
+  assert.deepEqual(mech.hand, [third, fourth], '同一回合内不能再次支付费用');
   assert.equal(target.maxHp, 5);
   assert.equal(target.hp, 3);
 });

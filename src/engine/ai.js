@@ -8,6 +8,7 @@ import {
 } from './responses.js';
 import { sleep, pickRandom } from '../util.js';
 import { discardableCards } from './zones.js';
+import { hostileShaTargets } from './effects.js';
 
 // AI 难度 → 行动随机性（chaos 越高越随机、越弱）
 export const AI_CHAOS = { easy: 0.62, normal: 0.30, hard: 0.05 };
@@ -254,7 +255,7 @@ export class AIAgent {
         if (o.kind === 'jiedao' || o.kind === 'hengchong') continue; // 借刀/横冲需两段目标，随机时跳过
         if (o.bottledOther) continue; // 瓶装闪电·指定他人由强 AI 处理，随机时只走自己分支
         if (o.needTarget) {
-          const tgts = o.kind === 'sha' ? shaTargets(engine, player, o.card) : validTargets(engine, player, o.card);
+          const tgts = o.kind === 'sha' ? hostileShaTargets(engine, player, o.card) : validTargets(engine, player, o.card);
           if (tgts.length) moves.push({ type: 'play', card: o.card, targets: [pickRandom(tgts)], sourcePile });
         } else {
           let targets = [];
@@ -293,8 +294,8 @@ export class AIAgent {
           if (o.kind === 'jiedao' || o.kind === 'hengchong' || o.bottledOther) continue;
           let targets = [];
           if (o.needTarget) {
-            const available = o.kind === 'sha' ? shaTargets(engine, player, c) : validTargets(engine, player, c);
-            const target = available.find((t) => enemies.includes(t)) || available[0];
+            const available = o.kind === 'sha' ? hostileShaTargets(engine, player, c) : validTargets(engine, player, c);
+            const target = available.find((t) => enemies.includes(t)) || (o.kind === 'sha' ? null : available[0]);
             if (!target) continue;
             targets = [target];
           } else {
@@ -318,8 +319,8 @@ export class AIAgent {
         if (o.kind === 'jiedao' || o.kind === 'hengchong' || o.bottledOther) continue;
         let targets = [];
         if (o.needTarget) {
-          const available = o.kind === 'sha' ? shaTargets(engine, player, c) : validTargets(engine, player, c);
-          const target = available.find((t) => enemies.includes(t)) || available[0];
+          const available = o.kind === 'sha' ? hostileShaTargets(engine, player, c) : validTargets(engine, player, c);
+          const target = available.find((t) => enemies.includes(t)) || (o.kind === 'sha' ? null : available[0]);
           if (!target) continue;
           targets = [target];
         } else {
@@ -611,7 +612,7 @@ export class AIAgent {
 
     // 4) 致命杀（范围内可击杀）
     if (canUseSha(engine, player)) {
-      const shaTgts = shaTargets(engine, player).filter((t) => enemies.includes(t));
+      const shaTgts = hostileShaTargets(engine, player);
       const opts = shaOptions(engine, player);
       if (opts.length && shaTgts.length) {
         const killable = shaTgts.filter((t) => t.hp === 1);
@@ -687,7 +688,7 @@ export class AIAgent {
 
     // 8) 普通杀
     if (canUseSha(engine, player)) {
-      const shaTgts = shaTargets(engine, player).filter((t) => enemies.includes(t));
+      const shaTgts = hostileShaTargets(engine, player);
       const opts = shaOptions(engine, player);
       if (opts.length && shaTgts.length) {
         const shaCard = opts[0].card;

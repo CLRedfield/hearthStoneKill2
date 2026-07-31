@@ -151,7 +151,7 @@ export function activeSkillOptions(engine, p) {
   if (can('linghun') && !p.flags.linghunUsed && others) out.push({ skill: 'linghun', name: '灵魂分流' });
   if (can('xixue') && !p.flags.xixueUsed && engine.alivePlayers.length >= 2) out.push({ skill: 'xixue', name: '吸血' });
   if (can('xiehuo') && !p.flags.xiehuoUsed && discardable.length >= 2 && others) out.push({ skill: 'xiehuo', name: '邪火' });
-  if (can('tonghua') && discardable.length >= 2) out.push({ skill: 'tonghua', name: '同化' });
+  if (can('tonghua') && !p.flags.tonghuaUsed && discardable.length >= 2) out.push({ skill: 'tonghua', name: '同化' });
   if (can('shenpan') && !p.flags.shenpanUsed && others) out.push({ skill: 'shenpan', name: '审判烈焰' });
   if (can('bingfeng') && !p.flags.bingfengUsed && others) out.push({ skill: 'bingfeng', name: '冰封' });
   if (can('xuwu') && !p.flags.xuwuUsed && discardable.length && others) out.push({ skill: 'xuwu', name: '虚无' });

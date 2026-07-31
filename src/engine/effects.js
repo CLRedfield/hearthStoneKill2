@@ -71,6 +71,12 @@ export function shaTargets(engine, user, card = null) {
   });
 }
 
+// AI 主动出【杀】时只考虑敌方。合法目标仍由 shaTargets 保持完整，
+// 以免影响真人选目标，以及【借刀杀人】等允许强制攻击任意角色的规则。
+export function hostileShaTargets(engine, user, card = null) {
+  return shaTargets(engine, user, card).filter((target) => !engine.isAlly(user, target));
+}
+
 export function hasAnyCard(p) {
   return discardableCards(p).length > 0;
 }
@@ -859,7 +865,8 @@ async function playChaojie(engine, user, card) {
   };
   let targets = [];
   if (role === 'sha') {
-    const t = await pick(shaTargets(engine, user, v), true);
+    const candidates = human ? shaTargets(engine, user, v) : hostileShaTargets(engine, user, v);
+    const t = await pick(candidates, true);
     if (!t) { engine.log('无合法目标，【潮汐之戒】无效。', 'system'); return; }
     targets = [t];
   } else if (role === 'shan') { engine.log('【闪】不能主动使用，【潮汐之戒】无效。', 'system'); return; }
@@ -1059,7 +1066,8 @@ async function useDrawnImmediately(engine, user, card) {
   } else if (def.type === CARD_TYPE.SECRET) {
     if ((user.secrets || []).some((s) => s.kind === card.kind)) return dump(); // 同名奥秘已存在
   } else if (role === 'sha') {
-    const t = await pickTarget(shaTargets(engine, user, card), true);
+    const candidates = human ? shaTargets(engine, user, card) : hostileShaTargets(engine, user, card);
+    const t = await pickTarget(candidates, true);
     if (!t) return dump(); // 无合法目标
     targets = [t];
   } else if (role === 'shan') {

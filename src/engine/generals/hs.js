@@ -123,7 +123,7 @@ export const HS_GENERALS = {
   mechcthun: {
     id: 'mechcthun', name: '机械克苏恩', faction: FACTION.OLDGOD, hp: 3, title: '机械之劫',
     skills: ['zhongjie', 'tonghua'],
-    bio: '终结（锁定技）：每次受伤时，若所有牌区均为空，则对一名角色造成等同其当前体力值的强制伤害；结算后总会摸1张牌。同化：弃2张牌，令一名角色体力上限+1并回复1点。',
+    bio: '终结（锁定技）：每次受伤时，若所有牌区均为空，则对一名角色造成等同其当前体力值的强制伤害；结算后总会摸1张牌。同化（回合技）：弃2张牌，令一名角色体力上限+1并回复1点（每回合一次）。',
   },
   nzoth: {
     id: 'nzoth', name: '恩佐斯', faction: FACTION.OLDGOD, hp: 5, title: '深渊之神',

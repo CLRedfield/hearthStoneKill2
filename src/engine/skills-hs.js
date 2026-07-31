@@ -65,7 +65,7 @@ async function resolveWhisper(engine, source, target, need, damage, title = '低
 // 重新使用一张牌（看吧!/双生魔法）：真人选择目标，AI 使用启发式目标
 async function autoReplay(engine, player, info) {
   if (!info || !player.alive) return;
-  const { resolveCard, validTargets, shaTargets } = await import('./effects.js');
+  const { resolveCard, validTargets, shaTargets, hostileShaTargets } = await import('./effects.js');
   const def = CARD_DEFS[info.kind]; if (!def) return;
   const v = virtualCard(info.kind, [], { suit: info.suit, number: info.number, red: info.red });
   const role = cardAs(v);
@@ -88,7 +88,8 @@ async function autoReplay(engine, player, info) {
   };
   let targets = [];
   if (role === 'sha') {
-    const t = await pick(shaTargets(engine, player), true);
+    const candidates = human ? shaTargets(engine, player, v) : hostileShaTargets(engine, player, v);
+    const t = await pick(candidates, true);
     if (!t) return; targets = [t];
   } else if (role === 'tao') { if (player.hp >= player.maxHp) return; }
   else if (role === 'jiu') { /* self */ }
@@ -124,11 +125,12 @@ async function fireShengchu(engine, player, reason = '') {
 // 立即使用一张牌；interactive 时由 user 本人（人类）选择目标，AI 用启发式
 async function useRealCard(engine, user, card, interactive = false, allowDead = false) {
   if (!card || (!user.alive && !allowDead)) return; // allowDead：亡语等让已死亡角色也能结算用牌
-  const { resolveCard, validTargets, shaTargets } = await import('./effects.js');
+  const { resolveCard, validTargets, shaTargets, hostileShaTargets } = await import('./effects.js');
   const def = CARD_DEFS[card.kind] || {};
   const role = cardAs(card);
   const others = engine.alivePlayers.filter((p) => p !== user);
-  const human = interactive && engine.agentOf?.(user)?.kind !== 'ai';
+  const isAI = engine.agentOf?.(user)?.kind === 'ai';
+  const human = interactive && !isAI;
   // 候选目标排序：非友优先（AI 取首个）；byHp=true 残血优先，否则手牌多优先
   const prefer = (list, byHp) => list.slice().sort((a, b) => {
     const aa = engine.isAlly(user, a) ? 1 : 0, bb = engine.isAlly(user, b) ? 1 : 0;
@@ -143,7 +145,7 @@ async function useRealCard(engine, user, card, interactive = false, allowDead = 
   };
   let targets = [];
   if (role === 'sha') {
-    const cands = prefer(shaTargets(engine, user), true);
+    const cands = prefer(isAI ? hostileShaTargets(engine, user, card) : shaTargets(engine, user, card), true);
     if (!cands.length) { engine.discard.push(card); return; }
     const t = await pick(cands); if (!t) { engine.discard.push(card); return; } targets = [t];
   } else if (role === 'tao') { if (user.hp >= user.maxHp || !user.alive) { engine.discard.push(card); return; } }
@@ -1072,12 +1074,14 @@ export const HS_SKILLS = {
     },
   },
   tonghua: {
-    name: '同化', active: true,
-    desc: '出牌阶段弃置两张牌，使一名角色增加1点体力上限并回复1点体力。',
+    name: '同化', active: true, perTurn: true,
+    desc: '回合技：出牌阶段弃置两张牌，使一名角色增加1点体力上限并回复1点体力（每回合一次）。',
     async action(engine, { player, move }) {
+      if (player.flags.tonghuaUsed) return;
       const cards = [...new Set((move.cards || []).map((ref) => findOnPlayer(player, ref)).filter(Boolean))];
       const target = engine.playerById(move.targetId);
       if (cards.length < 2 || !target?.alive) return;
+      player.flags.tonghuaUsed = true;
       engine.discardCards(player, cards.slice(0, 2));
       target.maxHp += 1;
       engine.changed();
