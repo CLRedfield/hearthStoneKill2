@@ -37,6 +37,17 @@ export const armorsOf = (p) => [p?.equips?.[EQUIP_SLOT.ARMOR], p?.equips2?.armor
 export const hasWeaponKind = (p, k) => weaponsOf(p).some((w) => w.kind === k);
 export const hasArmorKind = (p, k) => armorsOf(p).some((a) => a.kind === k);
 
+// 本地引擎与联机视图共用同一套攻击范围计算，避免选目标时漏掉武器加成。
+export function attackRangeOf(player) {
+  const ranges = weaponsOf(player).map((weapon) => {
+    const def = CARD_DEFS[weapon.kind] || {};
+    // 埃辛诺斯刃：攻击范围X=本回合摸牌数（动态）
+    if (def.dynamicRange === 'drawnThisTurn') return player.flags?.drawnThisTurn || 0;
+    return def.range || weapon.range || 1;
+  });
+  return ranges.length ? Math.max(...ranges) : 1;
+}
+
 // ---------- 目标合法性 ----------
 export function canUseSha(engine, user) {
   if (hasSkill(user, 'paoxiao')) return true;
@@ -699,8 +710,8 @@ async function playAnzhong(engine, user, target, card) {
   }
   engine.discardCards(target, [first]);
   engine.log(`${user.name} 的【暗中破坏】弃掉 ${target.name} 的【${first.name}】。`, 'play');
-  // 连击：锦囊结算前 cardsUsed 已含本牌，此前用过其他牌 → ≥2
-  if ((user.flags.cardsUsed || 0) < 2) return;
+  // 当前牌会在结算完成后才计入 cardsUsed；此处已有任意一张前序牌即可连击。
+  if ((user.flags.cardsUsed || 0) < 1) return;
   const eqs = equipsOf(target);
   const slots = (target.secrets || []).map((sc, i) => ({ sc, i })).filter(({ sc }) => sc.guhuoBy == null);
   if (!eqs.length && !slots.length) return;
@@ -928,7 +939,10 @@ async function playHengchong(engine, user, compelled, victim, card) {
   engine.toDiscard([card]);
   if (!compelled) return;
   if (await nullified(engine, card, user, compelled)) return;
-  if (!victim || !victim.alive) { engine.log('没有合法受害者，横冲直撞无效。', 'system'); return; }
+  if (!victim || !victim.alive || victim === compelled || !engine.inAttackRange(compelled, victim)) {
+    engine.log('没有处于被驱使者攻击范围内的合法受害者，横冲直撞无效。', 'system');
+    return;
+  }
   engine.log(`${user.name}【横冲直撞】令 ${compelled.name} 对 ${victim.name} 使用【杀】！`, 'play');
   const ok = await askSha(engine, compelled, { hengchong: true, against: victim, mustTarget: victim });
   if (ok) {

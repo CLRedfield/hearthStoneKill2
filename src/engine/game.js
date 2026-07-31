@@ -7,7 +7,7 @@ import { GENERAL_LIST, getGeneral, generalPool } from './generals.js';
 import {
   Emitter, shuffle, sleep, clamp, removeFrom, removeFromHand, clearCardFreeze, sample, uid,
 } from '../util.js';
-import { resolveCard, validTargets, canUseSha, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge, nullified, settleBasicResponse } from './effects.js';
+import { resolveCard, validTargets, canUseSha, attackRangeOf, weaponsOf, armorsOf, hasArmorKind, hasWeaponKind, getOneDodge, nullified, settleBasicResponse } from './effects.js';
 import { SKILLS, triggerSkill, hasSkill } from './skills.js';
 import { discardableCards } from './zones.js';
 
@@ -96,14 +96,7 @@ export class GameEngine {
   }
 
   attackRange(player) {
-    // 骨架：取两件武器中较大的攻击范围
-    const ranges = weaponsOf(player).map((w) => {
-      const d = CARD_DEFS[w.kind] || {};
-      // 埃辛诺斯刃：攻击范围X=本回合摸牌数（动态）
-      if (d.dynamicRange === 'drawnThisTurn') return player.flags?.drawnThisTurn || 0;
-      return d.range || 1;
-    });
-    return ranges.length ? Math.max(...ranges) : 1;
+    return attackRangeOf(player);
   }
 
   inAttackRange(from, to) {
@@ -974,6 +967,11 @@ export class GameEngine {
   async _handlePlay(player, move) {
     const card = move.card; // 可能是实体牌或虚拟牌
     if (!card) return;
+    // 主机权威校验：骸骨重铸令【桃】类牌只能通过濒死响应使用。
+    if (isTao(card) && hasSkill(player, 'haigu')) {
+      this.log(`${player.name} 的【桃】只能在濒死时使用。`, 'system');
+      return;
+    }
     const targets = (move.targets || []).map((t) => (typeof t === 'string' ? this.playerById(t) : t)).filter(Boolean);
     const sources = card.virtual ? card.sourceCards : [card];
     const fromXintu = move.sourcePile === 'xintu';
@@ -1145,16 +1143,24 @@ export class GameEngine {
     const gained = player.hp - before;
     this.log(`${player.name} 回复 ${gained} 点体力。`, 'good');
     this.fx('heal', { targetId: player.id, amount: gained });
-    // 骸骨重铸（玛洛加尔）：恢复到1点生命时跳过当前回合
-    if (gained > 0 && player.hp === 1 && hasSkill(player, 'haigu')) {
-      player.flags.skipPlay = true; player.flags.skipDiscard = true;
-      this.log(`${player.name}【骸骨重铸】恢复至1点，跳过当前回合。`, 'bad');
-    }
+    if (gained > 0) this._skipMarrowgarTurnAtOne(player);
     await this.pause(300);
     if (gained > 0 && !this._inRecoverTrigger) {
       this._inRecoverTrigger = true; // 防止回血触发链中再次回血导致递归
       try { await triggerSkill(this, 'recovered', { player, amount: gained, source }); } finally { this._inRecoverTrigger = false; }
     }
+  }
+
+  // 骸骨重铸（玛洛加尔）：在自己的回合恢复至1点时，立即跳到结束阶段。
+  _skipMarrowgarTurnAtOne(player) {
+    if (player.hp !== 1 || !hasSkill(player, 'haigu') || this.turnOwner !== player) return false;
+    player.flags.skipDraw = true;
+    player.flags.skipPlay = true;
+    player.flags.skipDiscard = true;
+    this.skipToEnd = true;
+    this.log(`${player.name}【骸骨重铸】恢复至1点，跳过当前回合。`, 'bad');
+    this.changed();
+    return true;
   }
 
   // 造成伤害的核心流程
@@ -1419,6 +1425,7 @@ export class GameEngine {
           beforeUsed: async () => {
             this.log(`${responder.name} 使用【${card.name}】救 ${player.name}。`, 'good');
             player.hp += 1;
+            this._skipMarrowgarTurnAtOne(player);
             this.changed();
             await this.pause(350);
           },

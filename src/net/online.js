@@ -8,6 +8,7 @@ import { GameUI, HumanAgent } from '../ui/table.js';
 import { renderRoomView, modeCapacity, nextDiff } from '../ui/room.js';
 import { ChatBox } from '../ui/chat.js';
 import { CARD_DEFS, virtualCard } from '../engine/cards.js';
+import { attackRangeOf } from '../engine/effects.js';
 import { Emitter, deferred } from '../util.js';
 import {
   MqttBus, topics, getBroker, BROKER_ALTERNATIVES, PROTOCOL_VERSION, genRoomCode, genClientId,
@@ -1127,7 +1128,7 @@ class ViewEngine {
     if (CARD_DEFS[from.equips?.plus?.kind]?.dualHorse) d -= 1;
     return Math.max(1, d);
   }
-  attackRange(p) { const w = p.equips?.weapon; return w?.range || 1; }
+  attackRange(p) { return attackRangeOf(p); }
   inAttackRange(from, to) { return this.distance(from, to) <= this.attackRange(from); }
   isAlly() { return false; }
 }

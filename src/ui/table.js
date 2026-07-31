@@ -9,7 +9,7 @@ import { CARD_DEFS, virtualCard } from '../engine/cards.js';
 import { SKILLS } from '../engine/skills.js';
 import {
   cardPlayOptions, activeSkillOptions, validTargets, shaTargets, canUseSha,
-  shanOptions, shaOptions, peachOptions, wuxieOptions, bottledTargets,
+  shanOptions, shaOptions, peachOptions, wuxieOptions, hasWeaponKind, bottledTargets,
 } from '../engine/responses.js';
 import { discardableCards } from '../engine/zones.js';
 import { FxLayer } from './fx.js';
@@ -49,6 +49,7 @@ export class GameUI {
   }
 
   get me() { return this.engine.playerById(this.viewerId); }
+  _hasWeapon(kind) { return hasWeaponKind(this.me, kind); }
 
   destroy() {
     this._goOverlay?.close();
@@ -663,7 +664,7 @@ export class GameUI {
     if (req && this._isRespondReq(req.type)) {
       // 响应类：点击手牌打出（含技能转化），不再用一堆按钮
       const opts = this._responseOptions(req);
-      const canZhangba = req.type === REQ.ASK_SHA && me?.equips?.weapon?.kind === 'zhangba' && (me.hand?.length || 0) >= 2;
+      const canZhangba = req.type === REQ.ASK_SHA && this._hasWeapon('zhangba') && (me.hand?.length || 0) >= 2;
       ctrl.appendChild(el('span', { class: 'ab-hint', text: opts.length ? '点击高亮手牌进行响应' : (canZhangba ? '可用丈八蛇矛响应' : '无可用的牌') }));
       if (canZhangba) ctrl.appendChild(el('button', { class: 'btn btn-skill', text: '丈八·两张当杀', onclick: () => this._enterZhangba('respond') }));
       ctrl.appendChild(el('button', { class: 'btn btn-ghost', text: req.type === REQ.ASK_NULLIFY ? '不使用' : '放弃', onclick: () => this._resolve(null) }));
@@ -711,7 +712,7 @@ export class GameUI {
         const acts = activeSkillOptions(this.engine, me);
         acts.forEach((a) => ctrl.appendChild(el('button', { class: 'btn btn-skill', text: a.name, onclick: () => this._startSkillFlow(a.skill) })));
         // 丈八蛇矛：两张手牌当【杀】
-        if (me?.equips?.weapon?.kind === 'zhangba' && canUseSha(this.engine, me) && (me.hand?.length || 0) >= 2 && shaTargets(this.engine, me).length) {
+        if (this._hasWeapon('zhangba') && canUseSha(this.engine, me) && (me.hand?.length || 0) >= 2 && shaTargets(this.engine, me).length) {
           ctrl.appendChild(el('button', { class: 'btn btn-skill', text: '丈八·两张当杀', onclick: () => this._enterZhangba('play') }));
         }
         ctrl.appendChild(el('button', { class: 'btn btn-danger', text: '结束出牌', onclick: () => this._resolve({ type: 'end' }) }));
@@ -942,7 +943,7 @@ export class GameUI {
       const me = this.me;
       const srcCount = o.card.virtual ? (o.card.sourceCards?.length || 1) : 1;
       const isLast = me.hand.length - srcCount <= 0;
-      if (me.equips[EQUIP_SLOT.WEAPON]?.kind === 'fangtian' && isLast) return 3;
+      if (this._hasWeapon('fangtian') && isLast) return 3;
       return 1;
     }
     return 1;

@@ -197,7 +197,8 @@ test('暗中破坏的奥秘选项不泄露名称或实体牌', async () => {
   const equip = card('equip', 'zhuge');
   const secret = card('secret', 'zhasi');
   user.hand.push(sabotage);
-  user.flags.cardsUsed = 2;
+  // 【暗中破坏】尚未计入 cardsUsed；此前使用任意一张牌就应触发连击。
+  user.flags.cardsUsed = 1;
   target.equips.weapon = equip;
   target.secrets.push(secret);
   const requests = [];
@@ -222,6 +223,33 @@ test('暗中破坏的奥秘选项不泄露名称或实体牌', async () => {
   assert.equal(JSON.stringify(choice.options).includes(secret.name), false);
   assert.equal(target.secrets.length, 0);
   assert.equal(engine.discard.includes(secret), true);
+});
+
+test('暗中破坏作为本回合第一张牌时不触发连击', async () => {
+  const user = player('user');
+  const target = player('target');
+  const sabotage = card('sabotage', 'anzhongpohuai');
+  const equip = card('equip', 'zhuge');
+  const secret = card('secret', 'zhasi');
+  user.hand.push(sabotage);
+  target.equips.weapon = equip;
+  target.secrets.push(secret);
+  const requests = [];
+  const engine = new GameEngine({ mode: 'test', pack: 'hs', pace: 0 });
+  engine.players = [user, target];
+  engine.turnOwner = user;
+  engine.pause = async () => {};
+  engine.ask = async (_asked, req) => {
+    requests.push(req);
+    if (req.title?.includes('一张装备')) return { value: equip.id };
+    return null;
+  };
+
+  await resolveCard(engine, { user, card: sabotage, targets: [target], options: {} });
+
+  assert.equal(requests.some((req) => req.title?.includes('暗中破坏·连击')), false);
+  assert.equal(target.secrets.includes(secret), true);
+  assert.equal(engine.discard.includes(equip), true);
 });
 
 test('照明弹的单个奥秘选择隐藏名称并显示持有者队伍', async () => {

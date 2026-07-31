@@ -4,7 +4,7 @@ import { isSha, isShan, isTao, CARD_DEFS } from './cards.js';
 import { hasSkill } from './skills.js';
 import {
   shanOptions, shaOptions, peachOptions, wuxieOptions,
-  cardPlayOptions, activeSkillOptions, validTargets, canUseSha, shaTargets, bottledTargets,
+  cardPlayOptions, activeSkillOptions, validTargets, canUseSha, shaTargets, hasWeaponKind, bottledTargets,
 } from './responses.js';
 import { sleep, pickRandom } from '../util.js';
 import { discardableCards } from './zones.js';
@@ -694,7 +694,7 @@ export class AIAgent {
         // 方天画戟：若这是最后一张手牌的【杀】，可指定至多3名敌人
         const srcCount = shaCard.virtual ? (shaCard.sourceCards?.length || 1) : 1;
         const isLast = player.hand.length - srcCount <= 0;
-        if (player.equips[EQUIP_SLOT.WEAPON]?.kind === 'fangtian' && isLast && shaTgts.length >= 2) {
+        if (hasWeaponKind(player, 'fangtian') && isLast && shaTgts.length >= 2) {
           return { type: 'play', card: shaCard, targets: [...shaTgts].sort((a, b) => a.hp - b.hp).slice(0, 3) };
         }
         // 关羽/赵云 用转化杀也可；优先真杀

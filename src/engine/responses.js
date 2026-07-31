@@ -84,11 +84,15 @@ export function cardPlayOptions(engine, p, card) {
   } else if (isSha(card)) {
     if (canUseSha(engine, p) && shaTargets(engine, p, card).length) opts.push({ kind: 'sha', asName: def.name, card, needTarget: true });
   } else if (isTao(card)) {
-    if (def.healAlly) {
-      // 联结治疗：使一名角色与你各回1，需选一名其他角色（你或他受伤即可用）
-      const others = engine.alivePlayers.filter((x) => x.id !== p.id);
-      if (others.length && (p.hp < p.maxHp || others.some((x) => x.hp < x.maxHp))) opts.push({ kind: 'lianjie', asName: def.name, card, needTarget: true });
-    } else if (p.hp < p.maxHp) opts.push({ kind: 'tao', asName: def.name, card, needTarget: false });
+    // 骸骨重铸：玛洛加尔不能在出牌阶段主动使用任何【桃】类牌。
+    // 仍允许这张实体牌通过其他技能转化为非【桃】用途。
+    if (!hasSkill(p, 'haigu')) {
+      if (def.healAlly) {
+        // 联结治疗：使一名角色与你各回1，需选一名其他角色（你或他受伤即可用）
+        const others = engine.alivePlayers.filter((x) => x.id !== p.id);
+        if (others.length && (p.hp < p.maxHp || others.some((x) => x.hp < x.maxHp))) opts.push({ kind: 'lianjie', asName: def.name, card, needTarget: true });
+      } else if (p.hp < p.maxHp) opts.push({ kind: 'tao', asName: def.name, card, needTarget: false });
+    }
   } else if (isJiu(card)) {
     if (!p.flags.jiuUsed) opts.push({ kind: 'jiu', asName: def.name, card, needTarget: false });
   } else if (isShan(card)) {
@@ -193,4 +197,4 @@ export function activeSkillOptions(engine, p) {
 }
 
 // 目标合法性（暴露给 UI）
-export { validTargets, canUseSha, shaTargets, hasAnyCard, bottledTargets } from './effects.js';
+export { validTargets, canUseSha, shaTargets, hasAnyCard, hasWeaponKind, bottledTargets } from './effects.js';
