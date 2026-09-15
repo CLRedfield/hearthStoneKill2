@@ -1,0 +1,41 @@
+name: Visual polish QA
+
+on:
+  push:
+    branches: [enhance/visual-polish]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Prepare reproducible review snapshot
+        if: always()
+        run: |
+          mkdir -p review-snapshot
+          git archive HEAD | tar -x -C review-snapshot
+          if [ -d dist ]; then cp -r dist review-snapshot/dist; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-review-snapshot
+          path: review-snapshot
+          include-hidden-files: true
+          retention-days: 7
