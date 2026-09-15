@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>炉石杀 · Visual QA</title>
+<link rel="stylesheet" href="../src/styles/main.css"><link rel="stylesheet" href="../src/styles/lobby.css"><link rel="stylesheet" href="../src/styles/game.css"><link rel="stylesheet" href="../src/styles/effects.css">
+</head><body><div id="app"><div class="game-root" id="game"></div></div><div id="overlay-root"></div><div id="toast-root"></div>
+<script type="module">
+import { GameEngine } from '../src/engine/game.js';
+import { GameUI } from '../src/ui/table.js';
+import { CARD_DEFS, buildDeck } from '../src/engine/cards.js';
+import { MODE, PHASE, REQ } from '../src/engine/constants.js';
+import { applyTheme } from '../src/ui/theme.js';
+applyTheme(new URLSearchParams(location.search).get('theme') || 'dark');
+const engine = new GameEngine({ mode: MODE.DUEL2V2, pack: 'hs', pace: 0, seats: [
+  { id:'p0', name:'光影旅人', isHuman:true, team:'A' }, { id:'p1', name:'暮色使者', team:'B' },
+  { id:'p2', name:'黑翼之主', team:'B' }, { id:'p3', name:'星界漫游者', team:'A' }
+] });
+engine._buildPlayers();
+['mida','mutanus','nefarian','serena'].forEach((id,i) => engine._assignGeneral(engine.players[i],id));
+engine.deck = buildDeck('hs');
+let counter = 0;
+function card(kind, number = 7) { if (!CARD_DEFS[kind]) throw new Error(`Unknown fixture card: ${kind}`); return { ...CARD_DEFS[kind], id: 'qa'+(++counter), kind, suit: 'heart', number, red:true }; }
+engine.players[0].hand = ['chongfeng','huoqiu','shandianjian','zhiliao','aoshuzhihui','fashufanzhi','hsjuedou'].filter((k)=>CARD_DEFS[k]).map((k,i)=>card(k,i+2));
+engine.players.forEach((p)=> { p.temporaryShields=0; });
+engine.phase = PHASE.PLAY;
+const ui = new GameUI(engine,'p0'); ui.mountInto(document.querySelector('#game'));
+const qa = window.qa = { engine, ui, card, player: engine.players[0], target: engine.players[1],
+  use(kind='huoqiu', many=false) { engine.fx('use', { userId:'p0',targetIds:many?['p1','p2']:['p1'],card:card(kind),verb:'使用' }); },
+  damage(nature='fire', amount=2) { engine.emitter.emit('damage', {target:engine.players[1],amount,nature}); },
+  heal() { engine.fx('heal',{targetId:'p0',amount:2}); },
+  secret() { engine.fx('secret',{playerId:'p2',label:'寒冰屏障'}); },
+  draw() { engine.players[0].hand.push(card('tao',9)); engine.changed(); },
+  rerender() { engine.changed(); },
+  play() { ui.await({type:REQ.PLAY_TURN}).then((move)=>{qa.move=move;}); },
+  destroy() { ui.destroy(); },
+};
+window.qaReady = true;
+</script></body></html>
