@@ -25,3 +25,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Visual QA output
+qa-results/
+__pycache__/

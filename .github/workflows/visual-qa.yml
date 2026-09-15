@@ -26,6 +26,21 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser QA tools
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Browser regression scenarios
+        run: python qa/browser_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-browser-report
+          path: qa-results
+          retention-days: 7
       - name: Prepare reproducible review snapshot
         if: always()
         run: |
